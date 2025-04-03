@@ -21,7 +21,7 @@
      self.input.open("fake_events")
  
 +    local success, err = pcall(function()
-+        self.input.open("/dev/input/event3")
++        self.input.open("/dev/input/event4")
 +    end)
 +
 +
