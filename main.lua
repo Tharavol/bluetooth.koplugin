@@ -20,8 +20,7 @@ local _ = require("gettext")
 -- local Bluetooth = EventListener:extend{
 local Bluetooth = InputContainer:extend{
     name = "Bluetooth",
-    is_bluetooth_on = false,  -- Tracks the state of Bluetooth
-    input_device_path = "/dev/input/event3",  -- Device path
+    input_device_path = "/dev/input/event4",  -- Device path
 }
 
 function Bluetooth:onDispatcherRegisterActions()
@@ -140,29 +139,47 @@ function Bluetooth:addToMainMenu(menu_items)
         sorting_hint = "network",
         sub_item_table = {
             {
-                text = _("Bluetooth on"),
+                text = _("Toggle Bluetooth"),
+                keep_menu_open = true,
+                checked_func = function()
+                  return self:isBluetoothOn()
+                end,
                 callback = function()
                     if not self:isWifiEnabled() then
                         self:popup("Please turn on Wi-Fi to continue.")
                     else
+                      if self:isBluetoothOn() then
+                        self:onBluetoothOff()
+                      else
                         self:onBluetoothOn()
+                      end
                     end
                 end,
-            },
-            {
-                text = _("Bluetooth off"),
-                callback = function()
-                    self:onBluetoothOff()
-                end,
+                separator = true,
             },
             {
                 text = _("Reconnect to Device"),
+                enabled_func = function()
+                  return self:isBluetoothOn()
+                end,
                 callback = function()
                     self:onConnectToDevice()
                 end,
             },
             {
-                text = _("Refresh Device Input"), -- New menu item
+                text = _("RePair & Reconnect to Device (long!)"),
+                enabled_func = function()
+                  return self:isBluetoothOn()
+                end,
+                callback = function()
+                    self:onDeviceRepair()
+                end,
+            },
+            {
+                text = _("Refresh Device Input"),
+                enabled_func = function()
+                  return self:isBluetoothOn()
+                end,
                 callback = function()
                     self:onRefreshPairing()
                 end,
@@ -176,7 +193,7 @@ function Bluetooth:getScriptPath(script)
 end
 
 function Bluetooth:executeScript(script)
-    local command = "/bin/sh /mnt/onboard/.koreader/plugins/bluetooth.koplugin/" .. script
+    local command = "/bin/sh /mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/" .. script
     local handle = io.popen(command)
     local result = handle:read("*a")
     handle:close()
@@ -189,16 +206,13 @@ function Bluetooth:onBluetoothOn()
 
     if not result or result == "" then
         self:popup(_("Error: No result from the Bluetooth script"))
-        self.is_bluetooth_on = false
         return
     end
 
     if result:match("complete") then
-        self.is_bluetooth_on = true
         self:popup(_("Bluetooth turned on."))
     else
         self:popup(_("Result: ") .. result)
-        self.is_bluetooth_on = false
     end
 end
 
@@ -206,34 +220,54 @@ function Bluetooth:onBluetoothOff()
     local script = self:getScriptPath("off.sh")
     local result = self:executeScript(script)
 
-    self.is_bluetooth_on = false
     self:popup(_("Bluetooth turned off."))
 end
 
 function Bluetooth:onRefreshPairing()
-    if not self.is_bluetooth_on then
+    if not self:isBluetoothOn() then
         self:popup(_("Bluetooth is off. Please turn it on before refreshing pairing."))
         return
     end
+    self:refreshPairing()
+    self:popup(_("Bluetooth device at ") .. self.input_device_path .. " is now open.")
+end
 
+function Bluetooth:refreshPairing()
     local status, err = pcall(function()
         -- Ensure the device path is valid
         if not self.input_device_path or self.input_device_path == "" then
             error("Invalid device path")
         end
-
-        Device.input.close(self.input_device_path) -- Close the input using the high-level parameter
+        -- Device.input:close(self.input_device_path) -- Close the input using the high-level parameter
         Device.input.open(self.input_device_path)  -- Reopen the input using the high-level parameter
-        self:popup(_("Bluetooth device at ") .. self.input_device_path .. " is now open.")
     end)
-
     if not status then
         self:popup(_("Error: ") .. err)
     end
 end
 
+function Bluetooth:onDeviceRepair()
+    if not self:isBluetoothOn() then
+        self:popup(_("Bluetooth is off. Please turn it on before connecting to a device."))
+        return
+    end
+    local script = self:getScriptPath("repair.sh")
+    local result = self:executeScript(script)
+
+    -- Simplify the message: focus on the success and device name
+    local success = result:match("Connection successful")  -- Check if connection was successful
+    if success then
+        -- wait one second, then connect to the event fd
+        os.execute("sleep 3")
+        self:refreshPairing()
+        self:popup(_("Connection successful!"))
+    else
+        self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
+    end
+end
+
 function Bluetooth:onConnectToDevice()
-    if not self.is_bluetooth_on then
+    if not self:isBluetoothOn() then
         self:popup(_("Bluetooth is off. Please turn it on before connecting to a device."))
         return
     end
@@ -242,16 +276,29 @@ function Bluetooth:onConnectToDevice()
     local result = self:executeScript(script)
 
     -- Simplify the message: focus on the success and device name
-    local device_name = result:match("Name:%s*(.-)\n")  -- Extract the device name
     local success = result:match("Connection successful")  -- Check if connection was successful
 
-    if success and device_name then
-        self:popup(_("Connection successful: ") .. device_name)
+    if success then
+
+        -- wait one second, then connect to the event fd
+        os.execute("sleep 3")
+        self:refreshPairing()
+
+        self:popup(_("Connection successful!"))
     else
         self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
     end
 end
 
+function Bluetooth:isBluetoothOn()
+  local file = io.open("/sys/devices/platform/bt/rfkill/rfkill0/state", "r")
+  if file then
+    local content = file:read("*line")
+    file:close()
+    return content == "1"
+  end
+  return false
+end
 
 function Bluetooth:debugPopup(msg)
     self:popup(_("DEBUG: ") .. msg)
