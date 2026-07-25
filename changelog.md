@@ -1,11 +1,12 @@
 # Changelog
 
-Changes made in this fork, newest first. This fork isn't versioned, so entries
-are dated. For anything before the fork point, see the history of
+Changes made in this fork, newest first. Versions here are this fork's own and
+don't line up with either parent. For anything before the fork point, see the
+history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
-## 2026-07-25 — Kobo Sage + official Kobo Remote
+## v1.0.0 — 2026-07-25 — Kobo Sage + official Kobo Remote
 
 First working configuration on a Kobo Sage (Realtek RTL8821CS) driving the
 official Kobo Remote over BLE. Running on my own device.
