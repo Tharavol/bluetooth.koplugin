@@ -12,15 +12,34 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local Device = require("device")
 local EventListener = require("ui/widget/eventlistener")
 local Event = require("ui/event")  -- Add this line
+local logger = require("logger")
 
 -- local BTKeyManager = require("BTKeyManager")
 
 local _ = require("gettext")
 
+-- Module-level state, shared by every instance of this plugin in the process.
+-- KOReader init()s plugins once per UI context (FileManager and ReaderUI), and
+-- registerEventAdjustHook CHAINS hooks rather than replacing them. Keeping the
+-- flag and the debounce table here means only one hook is ever registered, and
+-- it debounces against a single shared table.
+local bt_hook_registered = false
+local bt_last_seen = {}
+
+-- Scancodes reported by the official Kobo Remote (BLE HID-over-GATT).
+-- NOTE: these are the values KOReader's own input pipeline sees, which are NOT
+-- the same numbers evtest prints for the same button.
+local BT_SCAN_FORWARD = 458833
+local BT_SCAN_BACK = 458834
+
+-- The remote auto-repeats while a button is held (~150-200ms cadence), so a
+-- press must only fire once until a clear gap indicates a genuine release.
+local BT_REPEAT_GAP = 0.5
+
 -- local Bluetooth = EventListener:extend{
 local Bluetooth = InputContainer:extend{
     name = "Bluetooth",
-    input_device_path = "/dev/input/event4",  -- Device path
+    input_device_path = "/dev/input/event3",  -- Device path
 }
 
 function Bluetooth:onDispatcherRegisterActions()
@@ -49,7 +68,7 @@ function Bluetooth:registerKeyEvents()
 	self.key_events.BTLastBookmark = { { "BTLastBookmark" }, event = "BTLastBookmark" }
 	self.key_events.BTToggleNightMode = { { "BTToggleNightMode" }, event = "BTToggleNightMode" }
 	self.key_events.BTToggleStatusBar = { { "BTToggleStatusBar" }, event = "BTToggleStatusBar" }
-	
+
 end
 
 
@@ -131,6 +150,27 @@ function Bluetooth:init()
     self.ui.menu:registerToMainMenu(self)
 
     self:registerKeyEvents()
+
+    -- The remote reports button presses as EV_MSC/MSC_SCAN only; the kernel
+    -- never synthesises an EV_KEY for these usages, so translate them here.
+    if not bt_hook_registered then
+        bt_hook_registered = true
+        Device.input:registerEventAdjustHook(function(_, ev)
+            if ev.type == 4 and ev.code == 4 then  -- EV_MSC, MSC_SCAN
+                local now = ev.time.sec + ev.time.usec / 1000000
+                local prev = bt_last_seen[ev.value] or 0
+                bt_last_seen[ev.value] = now
+                if now - prev < BT_REPEAT_GAP then
+                    return  -- still inside the same held-button repeat run
+                end
+                if ev.value == BT_SCAN_FORWARD then
+                    UIManager:sendEvent(Event:new("GotoViewRel", 1))
+                elseif ev.value == BT_SCAN_BACK then
+                    UIManager:sendEvent(Event:new("GotoViewRel", -1))
+                end
+            end
+        end)
+    end
 end
 
 function Bluetooth:addToMainMenu(menu_items)
@@ -210,7 +250,9 @@ function Bluetooth:onBluetoothOn()
     end
 
     if result:match("complete") then
-        self:popup(_("Bluetooth turned on."))
+        -- on.sh succeeded; go straight into pair/connect so a single menu tap
+        -- brings the remote all the way up. onDeviceRepair shows its own popup.
+        self:onDeviceRepair()
     else
         self:popup(_("Result: ") .. result)
     end
@@ -239,7 +281,7 @@ function Bluetooth:refreshPairing()
             error("Invalid device path")
         end
         -- Device.input:close(self.input_device_path) -- Close the input using the high-level parameter
-        Device.input.open(self.input_device_path)  -- Reopen the input using the high-level parameter
+        Device.input:open(self.input_device_path)  -- Reopen the input using the high-level parameter
     end)
     if not status then
         self:popup(_("Error: ") .. err)
