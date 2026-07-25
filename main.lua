@@ -41,6 +41,16 @@ local PLUGIN_DIR = "/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/"
 -- Seconds to wait for the uhid node after the link comes up.
 local BT_INPUT_WAIT = 5
 
+-- Seconds between watcher ticks. The remote can come back without anyone
+-- touching the menu: a keypress makes it re-advertise and BlueZ reconnects it
+-- unprompted, because repair.sh trusted it.
+local BT_WATCH_INTERVAL = 5
+
+-- Only one watcher for the whole process, for the same reason as
+-- bt_hook_registered above: init() runs once for FileManager and again for
+-- ReaderUI, and two timers would race each other onto the same device.
+local bt_watch_scheduled = false
+
 -- Read from device.conf so the name lives in one place; the shell scripts
 -- source the same file. Falls back to the default if it's missing.
 local function readDeviceName()
@@ -194,6 +204,11 @@ function Bluetooth:init()
             end
         end)
     end
+
+    -- Started here rather than from onBluetoothOn so it survives a KOReader
+    -- restart with Bluetooth already on, instead of waiting for a toggle.
+    -- Guarded, so the second instance doesn't add a second timer.
+    self:scheduleWatch()
 end
 
 function Bluetooth:addToMainMenu(menu_items)
@@ -387,6 +402,73 @@ function Bluetooth:closeInputDevice()
     bt_open_path = nil
 end
 
+-- Open path, dropping whatever we currently hold first. Returns false plus the
+-- error rather than reporting it, so the caller decides whether it deserves a
+-- popup: the menu paths want one, the watcher has to stay silent.
+function Bluetooth:reopenInputDevice(path)
+    self:closeInputDevice()
+
+    local ok, err = pcall(function()
+        Device.input:open(path)
+    end)
+    if not ok then
+        return false, err
+    end
+
+    bt_open_path = path
+    self.input_device_path = path
+    return true
+end
+
+-- Notice the remote coming and going without a menu tap.
+--
+-- Pressing a button makes the remote re-advertise, and BlueZ reconnects it on
+-- its own because repair.sh trusted it. The uhid device is recreated with
+-- whatever event number happens to be free, so KOReader is left holding an fd
+-- to a device that no longer exists -- connected, but dead, until "Refresh
+-- Device Input" is tapped. Watching /proc closes that gap.
+--
+-- Runs against the module table rather than an instance: KOReader tears the
+-- plugin down and rebuilds it when moving between FileManager and ReaderUI, so
+-- the timer outlives any single self.
+local function btWatchTick()
+    bt_watch_scheduled = false
+
+    if Bluetooth:isBluetoothOn() then
+        local path = Bluetooth:findInputDevice()
+        if path and path ~= bt_open_path then
+            -- Either the remote just appeared or it moved; either way the fd we
+            -- hold, if any, is stale.
+            local ok, err = Bluetooth:reopenInputDevice(path)
+            if ok then
+                logger.info("Bluetooth: watcher opened the remote at " .. path)
+            else
+                -- Typically the udev lag -- /proc lists the device before the
+                -- node exists. The next tick picks it up, so don't make noise.
+                logger.dbg("Bluetooth: watcher could not open " .. path .. ": " .. tostring(err))
+            end
+        elseif not path and bt_open_path then
+            -- The remote went away. Drop the handle instead of leaving it
+            -- pointing at a destroyed uhid device until the next connect.
+            logger.info("Bluetooth: watcher closing " .. bt_open_path .. "; the remote is gone")
+            Bluetooth:closeInputDevice()
+        end
+    end
+
+    Bluetooth:scheduleWatch()
+end
+
+-- Ticks even while Bluetooth is off, where the check costs two small sysfs
+-- reads: a watcher that stops has to be started again from somewhere, and
+-- that's one more thing to get wrong across the two plugin instances.
+function Bluetooth:scheduleWatch()
+    if bt_watch_scheduled then
+        return
+    end
+    bt_watch_scheduled = true
+    UIManager:scheduleIn(BT_WATCH_INTERVAL, btWatchTick)
+end
+
 -- Returns true if the input device was opened. Callers must check it before
 -- reporting success: this pops up its own error, and claiming the device is
 -- open right after that is the common case when the event number has moved.
@@ -403,24 +485,18 @@ function Bluetooth:refreshPairing()
         return false
     end
 
-    -- Close the previous fd before opening a new one. This must happen even
+    -- reopenInputDevice closes the previous fd first, which must happen even
     -- when the path is unchanged: a disconnect destroys the uhid device and
     -- the reconnect can recreate it on the same event number, so the fd we
     -- hold refers to a device that no longer exists. Same path, different
     -- device, no events. Skipping the close here is why a reconnect onto the
     -- same eventN left the remote connected but dead.
-    self:closeInputDevice()
-
-    local status, err = pcall(function()
-        Device.input:open(path)
-    end)
-    if not status then
+    local ok, err = self:reopenInputDevice(path)
+    if not ok then
         self:popup(_("Error: ") .. tostring(err))
         return false
     end
 
-    bt_open_path = path
-    self.input_device_path = path
     return true
 end
 
