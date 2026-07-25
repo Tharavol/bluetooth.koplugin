@@ -1,5 +1,9 @@
 #!/bin/bash
 
+BT_DEVICE_NAME="Kobo Remote"  # fallback if device.conf is missing
+# shellcheck source=device.conf
+. "$(dirname "$0")/device.conf" 2>/dev/null || true
+
 bltctl="timeout 5s bluetoothctl"
 
 # shut off the power, make sure its turned off
@@ -10,7 +14,7 @@ $bltctl power on
 sleep 2
 
 # delete all old devices
-$bltctl devices | grep "Kobo Remote" | while read -r device; do
+$bltctl devices | grep "$BT_DEVICE_NAME" | while read -r device; do
   bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
   echo "Removing $bluetooth_address"
   $bltctl remove "$bluetooth_address"
@@ -20,7 +24,7 @@ done
 $bltctl scan on
 sleep 2
 
-device=$($bltctl devices | grep "Kobo Remote")
+device=$($bltctl devices | grep "$BT_DEVICE_NAME")
 if [ -z "$device" ]; then
     echo "Device not found."
     exit 1

@@ -36,6 +36,29 @@ local BT_SCAN_BACK = 458834
 -- press must only fire once until a clear gap indicates a genuine release.
 local BT_REPEAT_GAP = 0.5
 
+local PLUGIN_DIR = "/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/"
+
+-- Seconds to wait for the uhid node after the link comes up.
+local BT_INPUT_WAIT = 5
+
+-- Read from device.conf so the name lives in one place; the shell scripts
+-- source the same file. Falls back to the default if it's missing.
+local function readDeviceName()
+    local f = io.open(PLUGIN_DIR .. "device.conf", "r")
+    if not f then
+        return "Kobo Remote"
+    end
+    local content = f:read("*a")
+    f:close()
+    return content:match('BT_DEVICE_NAME="([^"]+)"') or "Kobo Remote"
+end
+
+local BT_DEVICE_NAME = readDeviceName()
+
+-- The path we actually have open. The event number moves across reconnects, so
+-- closing input_device_path could close something we never opened.
+local bt_open_path = nil
+
 -- local Bluetooth = EventListener:extend{
 local Bluetooth = InputContainer:extend{
     name = "Bluetooth",
@@ -233,7 +256,7 @@ function Bluetooth:getScriptPath(script)
 end
 
 function Bluetooth:executeScript(script)
-    local command = "/bin/sh /mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/" .. script
+    local command = "/bin/sh " .. PLUGIN_DIR .. script
     local handle = io.popen(command)
     if not handle then
         -- io.popen can fail outright; without this the :read below would throw
@@ -291,22 +314,104 @@ function Bluetooth:onRefreshPairing()
     end
 end
 
+-- Locate the remote's /dev/input/eventN by name. The number is not stable
+-- across reconnects, so it has to be resolved every time rather than assumed.
+-- Blocks look like:
+--   N: Name="Kobo Remote"
+--   H: Handlers=sysrq leds event3
+function Bluetooth:findInputDevice()
+    local f = io.open("/proc/bus/input/devices", "r")
+    if not f then
+        return nil
+    end
+    local in_block, path = false, nil
+    for line in f:lines() do
+        if line:match('^N: Name="') then
+            in_block = line:find(BT_DEVICE_NAME, 1, true) ~= nil
+        elseif in_block then
+            local ev = line:match("^H: Handlers=.*(event%d+)")
+            if ev then
+                path = "/dev/input/" .. ev
+                break
+            end
+        end
+    end
+    f:close()
+    return path
+end
+
+-- Poll for a device node we can actually open.
+--
+-- /proc/bus/input/devices lists the kernel's input device, but the /dev node
+-- is created separately and not at the same instant -- and the entry can be
+-- listed while the node is absent entirely. Checking only /proc is what
+-- produced "Error opening input device </dev/input/event3>: No such file or
+-- directory" on a reconnect.
+--
+-- Returns the path, or nil plus the path that was listed but not openable, so
+-- the caller can tell "remote isn't there" from "node never appeared".
+function Bluetooth:waitForInputDevice()
+    local listed = nil
+    for i = 0, BT_INPUT_WAIT do
+        if i > 0 then
+            os.execute("sleep 1")
+        end
+        local path = self:findInputDevice()
+        if path then
+            listed = path
+            local f = io.open(path, "r")
+            if f then
+                f:close()
+                return path
+            end
+        end
+    end
+    return nil, listed
+end
+
 -- Returns true if the input device was opened. Callers must check it before
 -- reporting success: this pops up its own error, and claiming the device is
 -- open right after that is the common case when the event number has moved.
 function Bluetooth:refreshPairing()
-    local status, err = pcall(function()
-        -- Ensure the device path is valid
-        if not self.input_device_path or self.input_device_path == "" then
-            error("Invalid device path")
+    local path, listed = self:waitForInputDevice()
+    if not path then
+        if listed then
+            self:popup(BT_DEVICE_NAME .. _(" is connected and listed as ") .. listed ..
+                       _(", but that device node does not exist."))
+        else
+            self:popup(_("Could not find ") .. BT_DEVICE_NAME ..
+                       _(" in /proc/bus/input/devices. Is it connected?"))
         end
-        -- Device.input:close(self.input_device_path) -- Close the input using the high-level parameter
-        Device.input:open(self.input_device_path)  -- Reopen the input using the high-level parameter
+        return false
+    end
+
+    -- Close the previous fd before opening a new one. This must happen even
+    -- when the path is unchanged: a disconnect destroys the uhid device and
+    -- the reconnect can recreate it on the same event number, so the fd we
+    -- hold refers to a device that no longer exists. Same path, different
+    -- device, no events. Skipping the close here is why a reconnect onto the
+    -- same eventN left the remote connected but dead.
+    if bt_open_path then
+        local closed, close_err = pcall(function() Device.input:close(bt_open_path) end)
+        if not closed then
+            -- Not fatal, but it means the handle leaked. Log it rather than
+            -- swallowing it, so it shows up in crash.log if the call is wrong.
+            logger.warn("Bluetooth: could not close " .. bt_open_path .. ": " .. tostring(close_err))
+        end
+        bt_open_path = nil
+    end
+
+    local status, err = pcall(function()
+        Device.input:open(path)
     end)
     if not status then
         self:popup(_("Error: ") .. tostring(err))
+        return false
     end
-    return status
+
+    bt_open_path = path
+    self.input_device_path = path
+    return true
 end
 
 function Bluetooth:onDeviceRepair()
@@ -327,8 +432,7 @@ function Bluetooth:onDeviceRepair()
     -- Simplify the message: focus on the success and device name
     local success = result:match("Connection successful")  -- Check if connection was successful
     if success then
-        -- wait one second, then connect to the event fd
-        os.execute("sleep 3")
+        -- refreshPairing polls for the uhid node, so no fixed sleep needed
         if self:refreshPairing() then
             self:popup(_("Connection successful!"))
         end
@@ -358,9 +462,7 @@ function Bluetooth:onConnectToDevice()
 
     if success then
 
-        -- wait one second, then connect to the event fd
-        os.execute("sleep 3")
-
+        -- refreshPairing polls for the uhid node, so no fixed sleep needed
         if self:refreshPairing() then
             self:popup(_("Connection successful!"))
         end
