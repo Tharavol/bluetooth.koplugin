@@ -6,7 +6,13 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
-## Unreleased
+## v1.1.0 — 2026-07-25 — Reconnects that survive a moving event number
+
+Everything that broke when the remote came back. The input device is resolved
+at runtime instead of assumed, the old handle is closed before reopening so a
+device recreated on the same event number can't leave the remote connected but
+dead, and *Reconnect to Device* now re-pairs itself when the bond returns
+incomplete. Confirmed on the Sage.
 
 ### Added
 
