@@ -1,5 +1,5 @@
 #!/bin/sh
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 hciconfig hci0 down
 killall rtk_hciattach

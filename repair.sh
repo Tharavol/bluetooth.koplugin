@@ -10,10 +10,10 @@ $bltctl power on
 sleep 2
 
 # delete all old devices
-$bltctl devices | grep "Kobo Remote" | while read device; do
+$bltctl devices | grep "Kobo Remote" | while read -r device; do
   bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
   echo "Removing $bluetooth_address"
-  $bltctl remove $bluetooth_address
+  $bltctl remove "$bluetooth_address"
 done
 
 # scan for new device
@@ -26,7 +26,7 @@ if [ -z "$device" ]; then
     exit 1
 else
   bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
-  $bltctl pair $bluetooth_address
-  $bltctl trust $bluetooth_address
-  $bltctl connect $bluetooth_address
+  $bltctl pair "$bluetooth_address"
+  $bltctl trust "$bluetooth_address"
+  $bltctl connect "$bluetooth_address"
 fi

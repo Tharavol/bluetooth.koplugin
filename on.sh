@@ -1,5 +1,5 @@
 #!/bin/sh
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 killall rtk_hciattach 2>/dev/null
 killall bluetoothd 2>/dev/null
@@ -15,5 +15,13 @@ hciconfig hci0 up
 
 setsid /libexec/bluetooth/bluetoothd -n -d > /var/log/bluetoothd.log 2>&1 &
 sleep 2
+
+# Only report success if the controller actually came up. hci0 regularly ends
+# up attached-but-DOWN, and echoing "complete" regardless sends the plugin
+# straight into pairing against a controller that isn't there.
+if ! hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"; then
+    echo "Error: hci0 did not come up - see /var/log/rtk_hciattach.log"
+    exit 1
+fi
 
 echo "complete"

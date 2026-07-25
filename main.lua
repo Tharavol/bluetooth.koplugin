@@ -235,14 +235,30 @@ end
 function Bluetooth:executeScript(script)
     local command = "/bin/sh /mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/" .. script
     local handle = io.popen(command)
+    if not handle then
+        -- io.popen can fail outright; without this the :read below would throw
+        -- out of the plugin and take KOReader down instead of showing a popup.
+        return nil
+    end
     local result = handle:read("*a")
     handle:close()
     return result
 end
 
+-- The scripts block for several seconds and executeScript reads them to EOF on
+-- the UI thread, so paint a message first or the reader just appears frozen.
+function Bluetooth:showBusy(text)
+    local msg = InfoMessage:new{ text = text }
+    UIManager:show(msg)
+    UIManager:forceRePaint()
+    return msg
+end
+
 function Bluetooth:onBluetoothOn()
     local script = self:getScriptPath("on.sh")
+    local busy = self:showBusy(_("Starting Bluetooth…"))
     local result = self:executeScript(script)
+    UIManager:close(busy)
 
     if not result or result == "" then
         self:popup(_("Error: No result from the Bluetooth script"))
@@ -260,7 +276,7 @@ end
 
 function Bluetooth:onBluetoothOff()
     local script = self:getScriptPath("off.sh")
-    local result = self:executeScript(script)
+    self:executeScript(script)  -- off.sh prints nothing on success
 
     self:popup(_("Bluetooth turned off."))
 end
@@ -270,10 +286,14 @@ function Bluetooth:onRefreshPairing()
         self:popup(_("Bluetooth is off. Please turn it on before refreshing pairing."))
         return
     end
-    self:refreshPairing()
-    self:popup(_("Bluetooth device at ") .. self.input_device_path .. " is now open.")
+    if self:refreshPairing() then
+        self:popup(_("Bluetooth device at ") .. self.input_device_path .. " is now open.")
+    end
 end
 
+-- Returns true if the input device was opened. Callers must check it before
+-- reporting success: this pops up its own error, and claiming the device is
+-- open right after that is the common case when the event number has moved.
 function Bluetooth:refreshPairing()
     local status, err = pcall(function()
         -- Ensure the device path is valid
@@ -284,8 +304,9 @@ function Bluetooth:refreshPairing()
         Device.input:open(self.input_device_path)  -- Reopen the input using the high-level parameter
     end)
     if not status then
-        self:popup(_("Error: ") .. err)
+        self:popup(_("Error: ") .. tostring(err))
     end
+    return status
 end
 
 function Bluetooth:onDeviceRepair()
@@ -294,15 +315,23 @@ function Bluetooth:onDeviceRepair()
         return
     end
     local script = self:getScriptPath("repair.sh")
+    local busy = self:showBusy(_("Pairing with the remote…"))
     local result = self:executeScript(script)
+    UIManager:close(busy)
+
+    if not result then
+        self:popup(_("Error: could not run ") .. script)
+        return
+    end
 
     -- Simplify the message: focus on the success and device name
     local success = result:match("Connection successful")  -- Check if connection was successful
     if success then
         -- wait one second, then connect to the event fd
         os.execute("sleep 3")
-        self:refreshPairing()
-        self:popup(_("Connection successful!"))
+        if self:refreshPairing() then
+            self:popup(_("Connection successful!"))
+        end
     else
         self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
     end
@@ -315,7 +344,14 @@ function Bluetooth:onConnectToDevice()
     end
 
     local script = self:getScriptPath("connect.sh")
+    local busy = self:showBusy(_("Connecting to the remote…"))
     local result = self:executeScript(script)
+    UIManager:close(busy)
+
+    if not result then
+        self:popup(_("Error: could not run ") .. script)
+        return
+    end
 
     -- Simplify the message: focus on the success and device name
     local success = result:match("Connection successful")  -- Check if connection was successful
@@ -324,9 +360,10 @@ function Bluetooth:onConnectToDevice()
 
         -- wait one second, then connect to the event fd
         os.execute("sleep 3")
-        self:refreshPairing()
 
-        self:popup(_("Connection successful!"))
+        if self:refreshPairing() then
+            self:popup(_("Connection successful!"))
+        end
     else
         self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
     end
@@ -334,12 +371,26 @@ end
 
 function Bluetooth:isBluetoothOn()
   local file = io.open("/sys/devices/platform/bt/rfkill/rfkill0/state", "r")
-  if file then
-    local content = file:read("*line")
-    file:close()
-    return content == "1"
+  if not file then
+    return false
   end
-  return false
+  local content = file:read("*line")
+  file:close()
+  if content ~= "1" then
+    return false
+  end
+
+  -- rfkill only reports that the radio is unblocked, which it can be at boot
+  -- with nothing attached to it. hci0 appears under /sys/class/bluetooth only
+  -- once rtk_hciattach has registered the controller, and every sysfs device
+  -- directory has a uevent file, so this is the cheap existence check.
+  -- (It still reads as "on" for an attached-but-DOWN hci0.)
+  local hci = io.open("/sys/class/bluetooth/hci0/uevent", "r")
+  if not hci then
+    return false
+  end
+  hci:close()
+  return true
 end
 
 function Bluetooth:debugPopup(msg)
@@ -355,6 +406,9 @@ end
 
 function Bluetooth:isWifiEnabled()
     local handle = io.popen("iwconfig")
+    if not handle then
+        return false
+    end
     local result = handle:read("*a")
     handle:close()
 
