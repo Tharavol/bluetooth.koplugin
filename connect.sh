@@ -30,10 +30,12 @@ connect_output=$(timeout 5s bluetoothctl connect "$bluetooth_address" 2>&1) || t
 info=$(timeout 5s bluetoothctl info "$bluetooth_address" 2>&1) || true
 
 if echo "$info" | grep -q "Paired: yes" && echo "$info" | grep -q "Connected: yes"; then
-    # Report on the verified state, not on the connect call. Reconnecting to an
-    # already-connected remote returns an error (AlreadyConnected) while the
-    # bond is perfectly fine, and main.lua keys off this exact string -- relay
-    # the connect output for diagnostics, but let the state have the last word.
+    # Report on the verified state, not on the connect call. main.lua keys off
+    # this exact string, and the connect's own output is not a trustworthy
+    # source for it -- a reconnect can fail while the bond is perfectly fine.
+    # (BlueZ 5.63 on the Sage returns plain success when the remote is already
+    # connected, so this is defensive rather than a bug seen in the wild.)
+    # Relay the connect output for diagnostics; let the state have the word.
     echo "$connect_output"
     echo "Connection successful"
     exit 0
