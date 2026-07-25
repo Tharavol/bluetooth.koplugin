@@ -104,17 +104,30 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
 
 ## Known issues
 
-- **The connection doesn't survive idle.** The remote drops its BLE link and the
-  `uhid` device goes with it. BlueZ's `[Policy] ReconnectUUIDs` lists classic
-  HID (`1124`) but not HOGP (`1812`); adding it might help, untested.
-- **Bond state is fragile.** `Connected: yes` with `Paired: no` still happens —
-  the remote reconnects without re-bonding, the HID characteristics stay
-  inaccessible, and no input device appears. *Reconnect to Device* now detects
-  this and re-pairs on its own, so it recovers without you having to know which
-  menu item to pick, but the underlying flakiness is BlueZ's.
-- **Nothing recovers automatically.** Every reconnect needs a menu tap. When the
-  remote comes back on its own, KOReader is still holding a dead fd and has no
-  way to notice.
+- **The remote forgets its bond when it loses power.** This is the cause of the
+  `Connected: yes` / `Paired: no` state, and it isn't BlueZ's fault. Pull the
+  battery and the remote discards its bond; it then re-advertises as unbonded,
+  BlueZ connects and offers the stored LTK, the remote rejects a key it no
+  longer has, and the bonding attempt fails with HCI status `0x05`
+  (authentication failure). BlueZ clears `Paired` but the LE link stays up — so
+  the remote looks connected while the HID characteristics, which need
+  encryption, stay unreachable and no input device is ever created. Only a
+  fresh bond recovers it, which is what *Reconnect to Device* now does on its
+  own. Confirmed on the Sage from `bluetoothd` debug logs.
+- **The link doesn't come back by itself.** When the remote drops, BlueZ will
+  not re-dial it, so it stays gone until something asks for a connection.
+  `[Policy] ReconnectUUIDs` is **not** the answer and adding HOGP (`1812`) to
+  it does nothing: the policy plugin reconnects by calling a profile's
+  `connect` method, LE profiles like HoG don't have one, and the attempt fails
+  with `Operation not supported`. That's why the stock list holds only BR/EDR
+  profiles. Fixing this needs the plugin to initiate the connection itself,
+  which in turn needs the scripts off the UI thread first.
+- **Bluetooth needs somewhere to write.** The rootfs is ~282 MB and ships
+  nearly full; BlueZ stores bonds under `/var/db/bluetooth`, and when the disk
+  is full it fails to persist them with no symptom other than pairings that
+  never quite stick. Worth a `df -h /` before blaming anything else. Note that
+  attaching VS Code's Remote-SSH to a Kobo installs ~30 MB into `/` and will
+  fill it.
 - **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned.
 - **The scripts run on the UI thread.** A toggle blocks the reader for 15-20 s.
   There's a progress message so it no longer looks frozen, but the work is still

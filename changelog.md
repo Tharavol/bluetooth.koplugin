@@ -6,6 +6,34 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## Unreleased
+
+### Added
+
+- The remote is picked up again without a menu tap. A 5 s timer compares
+  `/proc/bus/input/devices` against the descriptor being held and reconciles
+  the two: it opens the remote when it appears or its event number moves, and
+  drops the handle when it goes away. Until now every recovery needed *Refresh
+  Device Input* tapped by hand, because a reconnect gives the `uhid` device
+  whatever event number happens to be free while KOReader carries on reading
+  the old one. The timer is scheduled once per process and stays quiet — it
+  logs rather than popping up messages, since an `InfoMessage` fired from a
+  timer would interrupt reading.
+
+### Documented
+
+- The `Connected: yes` / `Paired: no` state has a cause: **the remote discards
+  its bond when it loses power.** It re-advertises unbonded, BlueZ offers the
+  stored key, the remote rejects it, and bonding fails with HCI status `0x05`
+  while the LE link stays up. The self-healing reconnect added in v1.1.0 is
+  therefore the correct fix rather than a workaround — a bond the peripheral
+  has thrown away cannot be recovered, only replaced.
+- Adding HOGP to `[Policy] ReconnectUUIDs` **does not work** and has been
+  abandoned. BlueZ's policy plugin reconnects by calling a profile's `connect`
+  method; LE profiles like HoG don't have one, so the attempt fails with
+  `Operation not supported`. Getting the link back automatically will have to
+  come from this plugin, once the scripts no longer block the UI thread.
+
 ## v1.1.0 — 2026-07-25 — Reconnects that survive a moving event number
 
 Everything that broke when the remote came back. The input device is resolved
