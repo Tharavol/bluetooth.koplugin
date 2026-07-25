@@ -8,6 +8,18 @@ and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
 ## Unreleased
 
+### Added
+
+- *Reconnect to Device* is self-healing. A reconnect can land in
+  `Connected: yes` / `Paired: no` — the remote comes back without re-bonding,
+  BlueZ resolves GAP/GATT but the HID characteristics stay inaccessible, and no
+  input device is ever created. The connect reports success either way, so
+  `connect.sh` now checks the bond separately and hands over to `repair.sh` when
+  it's incomplete. Recovering no longer depends on knowing which menu item to
+  pick. The first connect's output is captured rather than printed, so its
+  "Connection successful" can't be mistaken for overall success when the
+  re-pair path is taken.
+
 ### Changed
 
 - The remote's `/dev/input/eventN` is resolved at runtime by reading it back
@@ -35,6 +47,9 @@ and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
   accident; the poll is both correct and quicker in the normal case.
 - A device that's listed but whose node never appears now reports that, instead
   of surfacing a raw `input.lua` traceback.
+- `onBluetoothOff()` closes the input device before tearing down the stack. It
+  was the one path that didn't go through `refreshPairing()`, so it left a
+  handle open against a device that no longer existed until the next connect.
 
 ## v1.0.0 — 2026-07-25 — Kobo Sage + official Kobo Remote
 

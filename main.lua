@@ -299,6 +299,10 @@ end
 
 function Bluetooth:onBluetoothOff()
     local script = self:getScriptPath("off.sh")
+
+    -- The uhid device goes away with the stack, so drop our handle first
+    -- rather than leaving it open against a device that no longer exists.
+    self:closeInputDevice()
     self:executeScript(script)  -- off.sh prints nothing on success
 
     self:popup(_("Bluetooth turned off."))
@@ -369,6 +373,20 @@ function Bluetooth:waitForInputDevice()
     return nil, listed
 end
 
+-- Drop the handle we hold, if any. Safe to call when nothing is open.
+function Bluetooth:closeInputDevice()
+    if not bt_open_path then
+        return
+    end
+    local closed, close_err = pcall(function() Device.input:close(bt_open_path) end)
+    if not closed then
+        -- Not fatal, but it means the handle leaked. Log it rather than
+        -- swallowing it, so it shows up in crash.log if the call is wrong.
+        logger.warn("Bluetooth: could not close " .. bt_open_path .. ": " .. tostring(close_err))
+    end
+    bt_open_path = nil
+end
+
 -- Returns true if the input device was opened. Callers must check it before
 -- reporting success: this pops up its own error, and claiming the device is
 -- open right after that is the common case when the event number has moved.
@@ -391,15 +409,7 @@ function Bluetooth:refreshPairing()
     -- hold refers to a device that no longer exists. Same path, different
     -- device, no events. Skipping the close here is why a reconnect onto the
     -- same eventN left the remote connected but dead.
-    if bt_open_path then
-        local closed, close_err = pcall(function() Device.input:close(bt_open_path) end)
-        if not closed then
-            -- Not fatal, but it means the handle leaked. Log it rather than
-            -- swallowing it, so it shows up in crash.log if the call is wrong.
-            logger.warn("Bluetooth: could not close " .. bt_open_path .. ": " .. tostring(close_err))
-        end
-        bt_open_path = nil
-    end
+    self:closeInputDevice()
 
     local status, err = pcall(function()
         Device.input:open(path)

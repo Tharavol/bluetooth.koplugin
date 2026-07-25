@@ -93,8 +93,10 @@ Everything lives under **Bluetooth** in the network menu:
 - **RePair & Reconnect to Device (long!)** — `repair.sh`. Full recovery: remove
   the bond, rescan, pair, trust, connect. Press a button on the remote while
   it's scanning so it advertises.
-- **Reconnect to Device** — `connect.sh`. The quick path: reconnect to an
-  already-bonded remote without re-pairing. Only works while the bond survives.
+- **Reconnect to Device** — `connect.sh`. Reconnects to the existing bond, and
+  verifies it afterwards: if the remote came back without re-bonding, it hands
+  over to a full re-pair automatically. Normally quick, occasionally as slow as
+  *RePair* when it has to fall through.
 - **Refresh Device Input** — reopens `/dev/input/eventN` after the remote
   reconnects on its own.
 
@@ -105,14 +107,14 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
 - **The connection doesn't survive idle.** The remote drops its BLE link and the
   `uhid` device goes with it. BlueZ's `[Policy] ReconnectUUIDs` lists classic
   HID (`1124`) but not HOGP (`1812`); adding it might help, untested.
-- **Bond state is fragile.** `Connected: yes` with `Paired: no` happens — the
-  remote reconnects without re-bonding, the HID characteristics stay
-  inaccessible, and no input device appears. Only a full re-pair recovers it.
+- **Bond state is fragile.** `Connected: yes` with `Paired: no` still happens —
+  the remote reconnects without re-bonding, the HID characteristics stay
+  inaccessible, and no input device appears. *Reconnect to Device* now detects
+  this and re-pairs on its own, so it recovers without you having to know which
+  menu item to pick, but the underlying flakiness is BlueZ's.
 - **Nothing recovers automatically.** Every reconnect needs a menu tap. When the
   remote comes back on its own, KOReader is still holding a dead fd and has no
   way to notice.
-- **`onBluetoothOff()` doesn't close the input device**, so the handle stays
-  open against a destroyed device until the next connect.
 - **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned.
 - **The scripts run on the UI thread.** A toggle blocks the reader for 15-20 s.
   There's a progress message so it no longer looks frozen, but the work is still

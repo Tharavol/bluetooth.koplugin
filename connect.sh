@@ -16,4 +16,30 @@ if [ -z "$device" ]; then
 fi
 
 bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
-timeout 5s bluetoothctl connect "$bluetooth_address"
+
+# Try the quick path first: reconnect to the bond we already have. Capture the
+# output rather than printing it, so a "Connection successful" from this
+# attempt can't be mistaken for overall success if the bond turns out to be
+# incomplete and we fall through to a re-pair below.
+connect_output=$(timeout 5s bluetoothctl connect "$bluetooth_address" 2>&1) || true
+
+# A reconnect can land in "Connected: yes / Paired: no": the remote comes back
+# without re-bonding, BlueZ resolves GAP/GATT but the HID characteristics stay
+# inaccessible, and no input device is ever created. The connect itself reports
+# success, so the bond has to be checked separately.
+info=$(timeout 5s bluetoothctl info "$bluetooth_address" 2>&1) || true
+
+if echo "$info" | grep -q "Paired: yes" && echo "$info" | grep -q "Connected: yes"; then
+    # Report on the verified state, not on the connect call. Reconnecting to an
+    # already-connected remote returns an error (AlreadyConnected) while the
+    # bond is perfectly fine, and main.lua keys off this exact string -- relay
+    # the connect output for diagnostics, but let the state have the last word.
+    echo "$connect_output"
+    echo "Connection successful"
+    exit 0
+fi
+
+# Bond is incomplete. Only a full remove/scan/pair/trust/connect recovers it,
+# which is what repair.sh does -- hand over so its output is what gets reported.
+echo "Connected without a valid bond; re-pairing."
+exec /bin/sh "$(dirname "$0")/repair.sh"
