@@ -102,18 +102,17 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
 
 ## Known issues
 
-- **The input device path is hardcoded** to `/dev/input/event3`. The remote's
-  event number changes across reconnects, and when it's wrong *Refresh Device
-  Input* reports `No such file or directory`. It should be resolved at runtime
-  from `/proc/bus/input/devices`.
 - **The connection doesn't survive idle.** The remote drops its BLE link and the
   `uhid` device goes with it. BlueZ's `[Policy] ReconnectUUIDs` lists classic
   HID (`1124`) but not HOGP (`1812`); adding it might help, untested.
 - **Bond state is fragile.** `Connected: yes` with `Paired: no` happens — the
   remote reconnects without re-bonding, the HID characteristics stay
   inaccessible, and no input device appears. Only a full re-pair recovers it.
-- **`refreshPairing()` never closes the old fd**, so repeated calls across
-  changing event numbers may leak handles.
+- **Nothing recovers automatically.** Every reconnect needs a menu tap. When the
+  remote comes back on its own, KOReader is still holding a dead fd and has no
+  way to notice.
+- **`onBluetoothOff()` doesn't close the input device**, so the handle stays
+  open against a destroyed device until the next connect.
 - **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned.
 - **The scripts run on the UI thread.** A toggle blocks the reader for 15-20 s.
   There's a progress message so it no longer looks frozen, but the work is still

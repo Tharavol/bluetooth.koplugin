@@ -6,6 +6,36 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## Unreleased
+
+### Changed
+
+- The remote's `/dev/input/eventN` is resolved at runtime by reading it back
+  from `/proc/bus/input/devices` by device name, instead of assuming `event3`.
+  The number moves across reconnects, and when it moved, everything that opened
+  the input device failed.
+- The device name lives in `device.conf`, sourced by the shell scripts and
+  parsed by `main.lua`. It was duplicated across three files, which is how the
+  unquoted `grep` got in. Each consumer keeps the default as a fallback, so a
+  missing `device.conf` doesn't break anything.
+
+### Fixed
+
+- **A reconnect onto the same event number left the remote dead.** Disconnecting
+  destroys the uhid device and reconnecting can recreate it on the same number,
+  so the fd being held pointed at a device that no longer existed — same path,
+  different device, no events. The input device is now closed before reopening
+  regardless of whether the path changed. This also closes the handle leak the
+  old code had.
+- **Opening the input device raced udev.** The kernel lists the device in
+  `/proc/bus/input/devices` immediately, but `/dev` is a plain tmpfs here and
+  `udevd` creates the node a moment later, so opening as soon as the entry
+  appeared failed with `No such file or directory`. It now polls for a node that
+  actually opens. The fixed `sleep 3` this replaced had been covering the lag by
+  accident; the poll is both correct and quicker in the normal case.
+- A device that's listed but whose node never appears now reports that, instead
+  of surfacing a raw `input.lua` traceback.
+
 ## v1.0.0 — 2026-07-25 — Kobo Sage + official Kobo Remote
 
 First working configuration on a Kobo Sage (Realtek RTL8821CS) driving the
