@@ -127,11 +127,10 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
   is full it fails to persist them with no symptom other than pairings that
   never quite stick. Worth a `df -h /` before blaming anything else. Note that
   attaching VS Code's Remote-SSH to a Kobo installs ~30 MB into `/` and will
-  fill it.
+  fill it. Beware editing config files on a full rootfs: `sed -i` writes a
+  temp file and renames it over the original, so it will happily replace
+  `/etc/bluetooth/main.conf` with an empty one and report nothing.
 - **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned.
-- **The scripts run on the UI thread.** A toggle blocks the reader for 15-20 s.
-  There's a progress message so it no longer looks frozen, but the work is still
-  synchronous — it should move to a subprocess.
 - `device.lua.patch` and `uhid/` are inherited from upstream and are **not** part
   of the Sage setup described here. `uhid` is compiled into this kernel, and the
   page-turn path bypasses KOReader's keymap entirely, so the `BT*` key events in

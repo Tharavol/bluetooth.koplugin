@@ -20,6 +20,21 @@ and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
   logs rather than popping up messages, since an `InfoMessage` fired from a
   timer would interrupt reading.
 
+### Changed
+
+- The scripts no longer block the reader. Every menu action runs its script
+  through `Trapper:dismissablePopen()` inside a coroutine, so the 15-20 second
+  pair-and-connect leaves KOReader usable instead of frozen — you can turn
+  pages or open a book while it works, and the progress message can be
+  dismissed. `showBusy()` and its forced repaint are gone; Trapper builds the
+  widget itself. Dismissing is now a distinct outcome rather than a failure:
+  the script keeps running and can't be called back, so reporting an error
+  that hasn't happened would be worse than staying quiet.
+- Each handler wraps itself rather than being wrapped at the menu callback, so
+  actions bound to a gesture get the same treatment as a menu tap. Turning
+  Bluetooth on still chains into a re-pair, and the two share one coroutine
+  instead of nesting.
+
 ### Documented
 
 - The `Connected: yes` / `Paired: no` state has a cause: **the remote discards

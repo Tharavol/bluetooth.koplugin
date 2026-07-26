@@ -12,6 +12,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local Device = require("device")
 local EventListener = require("ui/widget/eventlistener")
 local Event = require("ui/event")  -- Add this line
+local Trapper = require("ui/trapper")
 local logger = require("logger")
 
 -- local BTKeyManager = require("BTKeyManager")
@@ -270,33 +271,36 @@ function Bluetooth:getScriptPath(script)
     return script
 end
 
-function Bluetooth:executeScript(script)
+-- Run a script off the UI thread, showing a dismissable message while it works.
+--
+-- Returns Trapper's own pair: completed, output. `completed` is false when the
+-- message was dismissed, and the script keeps running regardless -- there's no
+-- way to call it back, so the output of a dismissed run can't be trusted.
+--
+-- Callers must take BOTH values: assigning this to a single variable binds
+-- the boolean instead of the output, which then blows up on the first
+-- result:match(). Trapper:wrap swallows that error into a pcall, so the
+-- symptom is nothing happening rather than a traceback.
+--
+-- Needs to run inside Trapper:wrap(); outside one, Trapper logs a warning and
+-- falls back to a blocking io.popen, which is exactly today's behaviour.
+function Bluetooth:executeScript(script, message)
     local command = "/bin/sh " .. PLUGIN_DIR .. script
-    local handle = io.popen(command)
-    if not handle then
-        -- io.popen can fail outright; without this the :read below would throw
-        -- out of the plugin and take KOReader down instead of showing a popup.
-        return nil
-    end
-    local result = handle:read("*a")
-    handle:close()
-    return result
-end
-
--- The scripts block for several seconds and executeScript reads them to EOF on
--- the UI thread, so paint a message first or the reader just appears frozen.
-function Bluetooth:showBusy(text)
-    local msg = InfoMessage:new{ text = text }
-    UIManager:show(msg)
-    UIManager:forceRePaint()
-    return msg
+    return Trapper:dismissablePopen(command, message)
 end
 
 function Bluetooth:onBluetoothOn()
+    if not Trapper:isWrapped() then
+        return Trapper:wrap(function() self:onBluetoothOn() end)
+    end
+
     local script = self:getScriptPath("on.sh")
-    local busy = self:showBusy(_("Starting Bluetooth…"))
-    local result = self:executeScript(script)
-    UIManager:close(busy)
+    local completed, result = self:executeScript(script, _("Starting Bluetooth…"))
+
+    if not completed then
+        logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
+        return
+    end
 
     if not result or result == "" then
         self:popup(_("Error: No result from the Bluetooth script"))
@@ -313,12 +317,20 @@ function Bluetooth:onBluetoothOn()
 end
 
 function Bluetooth:onBluetoothOff()
+    if not Trapper:isWrapped() then
+        return Trapper:wrap(function() self:onBluetoothOff() end)
+    end
+
     local script = self:getScriptPath("off.sh")
 
     -- The uhid device goes away with the stack, so drop our handle first
     -- rather than leaving it open against a device that no longer exists.
     self:closeInputDevice()
-    self:executeScript(script)  -- off.sh prints nothing on success
+
+    -- Both return values are ignored on purpose: off.sh prints nothing on
+    -- success, and dismissing the message doesn't call the teardown back, so
+    -- the stack goes down either way and the popup below stays true.
+    self:executeScript(script, _("Turning Bluetooth off…"))
 
     self:popup(_("Bluetooth turned off."))
 end
@@ -501,14 +513,21 @@ function Bluetooth:refreshPairing()
 end
 
 function Bluetooth:onDeviceRepair()
+    if not Trapper:isWrapped() then
+        return Trapper:wrap(function() self:onDeviceRepair() end)
+    end
+
     if not self:isBluetoothOn() then
         self:popup(_("Bluetooth is off. Please turn it on before connecting to a device."))
         return
     end
     local script = self:getScriptPath("repair.sh")
-    local busy = self:showBusy(_("Pairing with the remote…"))
-    local result = self:executeScript(script)
-    UIManager:close(busy)
+    local completed, result = self:executeScript(script, _("Pairing with the remote…"))
+
+    if not completed then
+        logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
+        return
+    end
 
     if not result then
         self:popup(_("Error: could not run ") .. script)
@@ -528,15 +547,30 @@ function Bluetooth:onDeviceRepair()
 end
 
 function Bluetooth:onConnectToDevice()
+    -- Trapper needs a coroutine to yield into. Wrapping here rather than at the
+    -- menu callback covers the Dispatcher entry point too, so a gesture bound
+    -- to this action gets the same treatment as a menu tap.
+    if not Trapper:isWrapped() then
+        return Trapper:wrap(function() self:onConnectToDevice() end)
+    end
+
     if not self:isBluetoothOn() then
         self:popup(_("Bluetooth is off. Please turn it on before connecting to a device."))
         return
     end
 
     local script = self:getScriptPath("connect.sh")
-    local busy = self:showBusy(_("Connecting to the remote…"))
-    local result = self:executeScript(script)
-    UIManager:close(busy)
+    local completed, result = self:executeScript(script, _("Connecting to the remote…"))
+
+    if not completed then
+        -- Dismissed: connect.sh is still running and may yet succeed, so
+        -- reporting a failure that hasn't happened would be worse than saying
+        -- nothing. A failed popen also lands here and is indistinguishable, so
+        -- log it -- silence is the right call for the common case, and the
+        -- rare one shouldn't vanish entirely.
+        logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
+        return
+    end
 
     if not result then
         self:popup(_("Error: could not run ") .. script)
