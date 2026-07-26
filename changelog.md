@@ -6,7 +6,15 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
-## Unreleased
+## v1.2.0 — 2026-07-25 — Recovers on its own, without freezing the reader
+
+The remote comes back by itself now. When the link drops the plugin notices,
+dials it again, and re-opens the input device wherever it has landed — no menu
+tap, about seven seconds end to end. Nothing blocks the reader while that
+happens: the scripts run off the UI thread, so a pair-and-connect is something
+you can read straight through. Confirmed on the Sage, along with the cause of
+the bond trouble that started all of this — the remote forgets its bond when it
+loses power.
 
 ### Added
 
