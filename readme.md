@@ -120,8 +120,10 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
   it does nothing: the policy plugin reconnects by calling a profile's
   `connect` method, LE profiles like HoG don't have one, and the attempt fails
   with `Operation not supported`. That's why the stock list holds only BR/EDR
-  profiles. Fixing this needs the plugin to initiate the connection itself,
-  which in turn needs the scripts off the UI thread first.
+  profiles. The plugin therefore dials it itself: when no input device is
+  present it retries in the background, about once a minute, and the remote is
+  usually back within seconds of dropping. It deliberately won't re-pair
+  unattended, so a bond the remote has *forgotten* still needs a menu tap.
 - **Bluetooth needs somewhere to write.** The rootfs is ~282 MB and ships
   nearly full; BlueZ stores bonds under `/var/db/bluetooth`, and when the disk
   is full it fails to persist them with no symptom other than pairings that

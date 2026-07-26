@@ -20,6 +20,27 @@ and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
   logs rather than popping up messages, since an `InfoMessage` fired from a
   timer would interrupt reading.
 
+- The remote reconnects on its own. BlueZ won't re-dial an LE peripheral, so
+  when the watcher finds no input device it runs `connect.sh --no-repair`,
+  at most once a minute, in the background — no message on screen, and a tap
+  cancels it rather than being swallowed. Measured on the Sage at roughly seven
+  seconds from a dropped link to a working remote, with nothing touched.
+  `--no-repair` is a new branch that reports an incomplete bond instead of
+  handing over to `repair.sh`: an unattended process must never run
+  `bluetoothctl remove`, because a re-pair that then failed would leave the
+  remote worse off than it started. Recovering a lost bond stays a menu tap.
+
+### Fixed
+
+- *Reconnect to Device* could destroy a perfectly good bond. The check for
+  `Paired: yes` ran immediately after `bluetoothctl connect`, which returns as
+  soon as the link is up with encryption still in flight — so a bond that was
+  about to be fine read as incomplete, and the re-pair handover removed and
+  rebuilt it for nothing. The bond is now polled until it settles. Only the
+  link-up-but-unbonded case is waited on; when the link itself isn't up there
+  is nothing in flight, and retrying just burns 5 s timeouts against a remote
+  that isn't answering.
+
 ### Changed
 
 - The scripts no longer block the reader. Every menu action runs its script

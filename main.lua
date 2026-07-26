@@ -52,6 +52,18 @@ local BT_WATCH_INTERVAL = 5
 -- ReaderUI, and two timers would race each other onto the same device.
 local bt_watch_scheduled = false
 
+-- Seconds between unattended reconnect attempts. Far slower than the watch
+-- tick, because each attempt spawns bluetoothctl and waits on 5 s timeouts,
+-- and can only succeed if the remote happens to be advertising right then.
+local BT_RECONNECT_INTERVAL = 60
+
+-- When the last unattended attempt started. A timestamp rather than an
+-- in-progress flag on purpose: a flag left true by an error would disable
+-- reconnection for the rest of the session, while a stale timestamp costs at
+-- most one extra attempt. Overlap isn't reachable in practice -- connect.sh's
+-- bluetoothctl calls are capped at 5 s each, well inside the interval.
+local bt_last_reconnect = 0
+
 -- Read from device.conf so the name lives in one place; the shell scripts
 -- source the same file. Falls back to the default if it's missing.
 local function readDeviceName()
@@ -282,6 +294,11 @@ end
 -- result:match(). Trapper:wrap swallows that error into a pcall, so the
 -- symptom is nothing happening rather than a traceback.
 --
+-- `script` may carry arguments; it is appended to the interpreter and plugin
+-- directory as-is. `message` is what Trapper shows while it works -- a string
+-- gets a dismissable widget, and `true` an invisible one that still lets a tap
+-- through, which is what the unattended reconnect wants.
+--
 -- Needs to run inside Trapper:wrap(); outside one, Trapper logs a warning and
 -- falls back to a blocking io.popen, which is exactly today's behaviour.
 function Bluetooth:executeScript(script, message)
@@ -443,27 +460,77 @@ end
 -- Runs against the module table rather than an instance: KOReader tears the
 -- plugin down and rebuilds it when moving between FileManager and ReaderUI, so
 -- the timer outlives any single self.
+-- Ask for the link back without anyone tapping anything.
+--
+-- BlueZ will not re-dial an LE peripheral: its [Policy] reconnect works by
+-- calling a profile's connect method, HoG hasn't got one, and the attempt dies
+-- with "Operation not supported". Doing it from here is the only route.
+--
+-- Always runs connect.sh with --no-repair, so an unattended attempt can never
+-- take the destructive path: repair.sh removes the bond before rebuilding it,
+-- and a re-pair that doesn't take would leave the remote worse off than it
+-- started. Recovering a lost bond stays a deliberate menu tap.
+function Bluetooth:tryReconnect()
+    local now = os.time()
+    if now - bt_last_reconnect < BT_RECONNECT_INTERVAL then
+        return
+    end
+    bt_last_reconnect = now
+
+    -- The tick is a plain timer callback rather than a coroutine, so this needs
+    -- its own wrap. Passing `true` asks Trapper for an invisible widget that
+    -- still lets a tap through: a background attempt must not put anything on
+    -- screen, and if the reader is touched mid-attempt that tap cancels us and
+    -- is then delivered normally. The next interval tries again regardless.
+    Trapper:wrap(function()
+        local completed, result = self:executeScript("connect.sh --no-repair", true)
+
+        -- Every outcome gets a line. Logging only the two recognised ones left
+        -- silence meaning both "never ran" and "ran and said something else",
+        -- which is not a distinction worth having to guess at from a log.
+        if not completed then
+            logger.info("Bluetooth: unattended reconnect was interrupted")
+        elseif not result then
+            logger.info("Bluetooth: unattended reconnect produced no output")
+        elseif result:match("Connection successful") then
+            -- Opening the input device is left to the next tick, which is what
+            -- it's for; the uhid node lags the link coming up anyway.
+            logger.info("Bluetooth: reconnected the remote unattended")
+        elseif result:match("without a valid bond") then
+            logger.info("Bluetooth: the remote is back but its bond is gone; needs a re-pair")
+        else
+            logger.info("Bluetooth: unattended reconnect did not take: " ..
+                        result:gsub("%s+", " "):sub(1, 120))
+        end
+    end)
+end
+
 local function btWatchTick()
     bt_watch_scheduled = false
 
     if Bluetooth:isBluetoothOn() then
         local path = Bluetooth:findInputDevice()
-        if path and path ~= bt_open_path then
-            -- Either the remote just appeared or it moved; either way the fd we
-            -- hold, if any, is stale.
-            local ok, err = Bluetooth:reopenInputDevice(path)
-            if ok then
-                logger.info("Bluetooth: watcher opened the remote at " .. path)
-            else
-                -- Typically the udev lag -- /proc lists the device before the
-                -- node exists. The next tick picks it up, so don't make noise.
-                logger.dbg("Bluetooth: watcher could not open " .. path .. ": " .. tostring(err))
+        if path then
+            if path ~= bt_open_path then
+                -- Either the remote just appeared or it moved; either way the
+                -- fd we hold, if any, is stale.
+                local ok, err = Bluetooth:reopenInputDevice(path)
+                if ok then
+                    logger.info("Bluetooth: watcher opened the remote at " .. path)
+                else
+                    -- Typically the udev lag -- /proc lists the device before
+                    -- the node exists. The next tick picks it up, so stay quiet.
+                    logger.dbg("Bluetooth: watcher could not open " .. path .. ": " .. tostring(err))
+                end
             end
-        elseif not path and bt_open_path then
-            -- The remote went away. Drop the handle instead of leaving it
-            -- pointing at a destroyed uhid device until the next connect.
-            logger.info("Bluetooth: watcher closing " .. bt_open_path .. "; the remote is gone")
-            Bluetooth:closeInputDevice()
+        else
+            if bt_open_path then
+                -- The remote went away. Drop the handle instead of leaving it
+                -- pointing at a destroyed uhid device until the next connect.
+                logger.info("Bluetooth: watcher closing " .. bt_open_path .. "; the remote is gone")
+                Bluetooth:closeInputDevice()
+            end
+            Bluetooth:tryReconnect()
         end
     end
 
