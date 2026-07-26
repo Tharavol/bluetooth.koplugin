@@ -37,6 +37,28 @@ more of its internals than a plugin usually does: `Device.input:open/close`,
 `registerEventAdjustHook`, `UIManager:scheduleIn`, and `Trapper` for running
 the scripts off the UI thread.
 
+## License
+
+MIT, inherited from
+[onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin) —
+see [`LICENSE`](LICENSE), which is byte-identical to theirs. The copyright line
+reads *Bluetooth Page Turner Contributors*; changes made in this fork are
+offered under those same terms, as part of that same collective, with no
+separate claim made over them.
+
+The notice had gone missing somewhere down the chain. MIT grants the right to
+modify and redistribute on the condition that the copyright and permission
+notice travel with the code, so restoring it isn't courtesy — it is the
+condition the grant runs on.
+
+[`DISCLAIMER`](DISCLAIMER) comes from the same place, and is worth keeping: this
+plugin power-cycles a radio through rfkill and opens kernel input devices.
+
+[CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin),
+the fork this one descends from, carries no license file. Whatever it inherited
+from onatbas remains MIT; its author's own additions are not explicitly
+licensed either way.
+
 ## This fork
 
 **Tharavol** — owns the Sage, ran the device testing, decided what to build.

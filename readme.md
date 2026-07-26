@@ -151,6 +151,14 @@ bug, and a list of useful debugging commands.
 One gotcha worth repeating here: KOReader's SSH server is itself a plugin, so
 quitting KOReader kills your own shell session.
 
+## License
+
+MIT — see [`LICENSE`](LICENSE), inherited unchanged from
+[onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
+Changes in this fork are offered under the same terms; see
+[`CREDITS.md`](CREDITS.md). [`DISCLAIMER`](DISCLAIMER) is worth reading before
+you point this at a device you care about.
+
 ## Community
 
 I found nothing documenting a Realtek-chip Sage driving the official BLE remote

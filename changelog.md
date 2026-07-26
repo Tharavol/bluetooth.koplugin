@@ -6,6 +6,28 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.2.3 — 2026-07-25 — License restored
+
+No behaviour change.
+
+### Added
+
+- [`LICENSE`](LICENSE) — MIT, byte-identical to
+  [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin)'s
+  and carrying its original *Bluetooth Page Turner Contributors* copyright
+  line. The notice had gone missing somewhere down the fork chain, and MIT
+  grants the right to modify and redistribute on the condition that it travels
+  with the code — so this was owed, not optional. No separate copyright claim
+  is made over this fork's changes; they are offered under the same terms as
+  part of the same collective.
+- [`DISCLAIMER`](DISCLAIMER) — restored from upstream as well, and apt for
+  something that power-cycles a radio through rfkill and opens kernel input
+  devices.
+- A *License* section in [`CREDITS.md`](CREDITS.md) and in the readme,
+  including the fact that the intermediate fork carries no license file of its
+  own: whatever it inherited stays MIT, its author's own additions are not
+  explicitly licensed either way.
+
 ## v1.2.2 — 2026-07-25 — Credits
 
 Documentation only; no behaviour change.
