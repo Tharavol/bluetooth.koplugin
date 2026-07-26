@@ -18,6 +18,9 @@ Both parent repos target Kobos with a **Broadcom** Bluetooth chip and a
 **classic Bluetooth HID** controller. The Sage has neither, which is what this
 fork is about.
 
+Full credits, prior art consulted, and who did what are in
+[`CREDITS.md`](CREDITS.md).
+
 ## What's different here
 
 Three things, each of which is on its own load-bearing:

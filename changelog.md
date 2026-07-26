@@ -6,6 +6,18 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.2.2 — 2026-07-25 — Credits
+
+Documentation only; no behaviour change.
+
+### Documented
+
+- [`CREDITS.md`](CREDITS.md) records the fork chain and what each layer of it
+  contributed, the prior art surveyed while working out whether the Sage was
+  solvable at all, the KOReader internals this plugin leans on more heavily
+  than most, and who did what on this fork.
+- The readme's *Lineage* section points at it.
+
 ## v1.2.1 — 2026-07-25 — Handoff brought up to date
 
 Documentation only; no behaviour change.
