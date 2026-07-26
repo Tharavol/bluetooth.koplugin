@@ -6,6 +6,30 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.2.1 — 2026-07-25 — Handoff brought up to date
+
+Documentation only; no behaviour change.
+
+### Documented
+
+- [`docs/HANDOFF.md`](docs/HANDOFF.md) now matches the code. The scripts and
+  `main.lua` sections describe what they actually do — runtime device
+  resolution, the watcher, the unattended reconnect, the Trapper conversion and
+  its two-value return — rather than the state of things several releases ago.
+- A new section explains the `Connected: yes` / `Paired: no` state end to end,
+  from the remote discarding its bond through the authentication failure to the
+  missing input device, and why automatic re-pair is the correct fix.
+- Four entries added to the dead-ends table: HOGP in `ReconnectUUIDs` and why
+  it cannot work for BLE, `sed -i` truncating files on a full rootfs, a mock
+  left on `PATH` poisoning later diagnosis, and reading the bond state before
+  encryption has settled.
+- Open issues rewritten around what's actually left: suspend/resume is the
+  untested gap, one unexplained silent reconnect failure, and the lost
+  `[General]` block of `main.conf`.
+- Platform facts gained BlueZ's real state directory, the size of the rootfs,
+  the 16 KB `/var` tmpfs mounts that had been truncating our debug logs, and
+  the Trapper API surface.
+
 ## v1.2.0 — 2026-07-25 — Recovers on its own, without freezing the reader
 
 The remote comes back by itself now. When the link drops the plugin notices,
