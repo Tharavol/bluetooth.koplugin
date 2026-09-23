@@ -155,7 +155,12 @@ Where more than one entry has the exact name, the first is used.
 `repair.sh` is the full `power off/on` → `remove` → `scan` → `pair` → `trust`
 → `connect` cycle. It is the only thing that recovers a bond the remote has
 forgotten, and it is destructive: `remove` throws away the existing bond
-before rebuilding it.
+before rebuilding it. It therefore judges its outcome the same way
+`connect.sh` does (step 2 below, `wait_for_bond` in `lib.sh`): it prints
+`Connection successful` only once `Paired: yes` and `Connected: yes` both
+hold, and on failure filters `bluetoothctl`'s own `Connection successful` out
+of the output it relays. Before this it trusted the connect call, which
+reports success in the `Paired: no` state.
 
 `connect.sh` is the quick path, and verifies its own work:
 

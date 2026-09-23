@@ -26,38 +26,9 @@ connect_output=$(bltctl connect "$bluetooth_address" 2>&1) || true
 # A reconnect can land in "Connected: yes / Paired: no": the remote comes back
 # without re-bonding, BlueZ resolves GAP/GATT but the HID characteristics stay
 # inaccessible, and no input device is ever created. The connect itself reports
-# success, so the bond has to be checked separately.
-#
-# Poll rather than sampling once. The connect returns as soon as the link is
-# up, with encryption and GATT still in flight, so an immediate read reports
-# "Paired: no" for a bond that is about to be perfectly fine. Reading it once
-# had the unattended reconnect declaring the bond gone five seconds before the
-# input device turned up -- and on the menu path that mistake is expensive,
-# because it hands over to repair.sh, which removes a working bond to rebuild
-# it.
-bond_ok=no
-attempt=0
-while [ "$attempt" -lt 5 ]; do
-    info=$(bltctl info "$bluetooth_address" 2>&1) || true
-    if echo "$info" | grep -q "Paired: yes" && echo "$info" | grep -q "Connected: yes"; then
-        bond_ok=yes
-        break
-    fi
-    # Only the link-up-but-unbonded case is worth waiting on, because that is
-    # the one that resolves on its own. If the link itself isn't up, nothing is
-    # in flight and every retry just burns another 5s timeout against a remote
-    # that isn't answering -- which is most of a minute for an unreachable
-    # remote, and the unattended reconnect runs this whenever it can't find one.
-    if ! echo "$info" | grep -q "Connected: yes"; then
-        break
-    fi
-    attempt=$((attempt + 1))
-    if [ "$attempt" -lt 5 ]; then
-        sleep 1
-    fi
-done
-
-if [ "$bond_ok" = yes ]; then
+# success, so the bond has to be checked separately -- and polled, since it
+# takes a moment to settle (see wait_for_bond in lib.sh).
+if wait_for_bond "$bluetooth_address"; then
     # Report on the verified state, not on the connect call. main.lua keys off
     # this exact string, and the connect's own output is not a trustworthy
     # source for it -- a reconnect can fail while the bond is perfectly fine.
