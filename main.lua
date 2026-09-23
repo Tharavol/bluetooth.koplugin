@@ -376,8 +376,11 @@ function Bluetooth:findInputDevice()
     end
     local in_block, path = false, nil
     for line in f:lines() do
-        if line:match('^N: Name="') then
-            in_block = line:find(BT_DEVICE_NAME, 1, true) ~= nil
+        local name = line:match('^N: Name="(.*)"%s*$')
+        if name then
+            -- Exact, like the scripts: a substring match would also take any
+            -- other device whose name merely contains the remote's.
+            in_block = name == BT_DEVICE_NAME
         elseif in_block then
             local ev = line:match("^H: Handlers=.*(event%d+)")
             if ev then

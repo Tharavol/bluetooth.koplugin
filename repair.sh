@@ -1,36 +1,32 @@
 #!/bin/sh
 
-BT_DEVICE_NAME="Kobo Remote"  # fallback if device.conf is missing
-# shellcheck source=device.conf
-. "$(dirname "$0")/device.conf" 2>/dev/null || true
-
-bltctl="timeout 5s bluetoothctl"
+BT_DIR=$(dirname "$0")
+# shellcheck source=lib.sh
+. "$BT_DIR/lib.sh"
 
 # shut off the power, make sure its turned off
-$bltctl power off
+bltctl power off
 sleep 2
 # turn back the power, make sure it's come back online
-$bltctl power on
+bltctl power on
 sleep 2
 
-# delete all old devices
-$bltctl devices | grep "$BT_DEVICE_NAME" | while read -r device; do
-  bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
+# Delete every old entry for the remote. A for loop rather than `| while read`,
+# which would run the body in a subshell and lose anything it set.
+for bluetooth_address in $(device_macs); do
   echo "Removing $bluetooth_address"
-  $bltctl remove "$bluetooth_address"
+  bltctl remove "$bluetooth_address"
 done
 
 # scan for new device
-$bltctl scan on
+bltctl scan on
 sleep 2
 
-device=$($bltctl devices | grep "$BT_DEVICE_NAME")
-if [ -z "$device" ]; then
+bluetooth_address=$(device_macs | head -n 1)
+if [ -z "$bluetooth_address" ]; then
     echo "Device not found."
     exit 1
-else
-  bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
-  $bltctl pair "$bluetooth_address"
-  $bltctl trust "$bluetooth_address"
-  $bltctl connect "$bluetooth_address"
 fi
+bltctl pair "$bluetooth_address"
+bltctl trust "$bluetooth_address"
+bltctl connect "$bluetooth_address"

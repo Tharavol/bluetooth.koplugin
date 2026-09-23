@@ -2,26 +2,26 @@
 
 set -e
 
-BT_DEVICE_NAME="Kobo Remote"  # fallback if device.conf is missing
-# shellcheck source=device.conf
-. "$(dirname "$0")/device.conf" 2>/dev/null || true
+BT_DIR=$(dirname "$0")
+# shellcheck source=lib.sh
+. "$BT_DIR/lib.sh"
 
-timeout 5s bluetoothctl power on
+bltctl power on
 
-# Quote the pattern: unquoted, grep reads "Remote" as a filename and dies.
-device=$(timeout 5s bluetoothctl devices | grep "$BT_DEVICE_NAME") || true
-if [ -z "$device" ]; then
+# First exact match only. More than one would otherwise become a multi-line
+# address that bluetoothctl rejects with an error that reads nothing like the
+# actual problem.
+bluetooth_address=$(device_macs | head -n 1)
+if [ -z "$bluetooth_address" ]; then
     echo "Device not found."
     exit 1
 fi
-
-bluetooth_address=$(echo "$device" | grep -oE '[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}')
 
 # Try the quick path first: reconnect to the bond we already have. Capture the
 # output rather than printing it, so a "Connection successful" from this
 # attempt can't be mistaken for overall success if the bond turns out to be
 # incomplete and we fall through to a re-pair below.
-connect_output=$(timeout 5s bluetoothctl connect "$bluetooth_address" 2>&1) || true
+connect_output=$(bltctl connect "$bluetooth_address" 2>&1) || true
 
 # A reconnect can land in "Connected: yes / Paired: no": the remote comes back
 # without re-bonding, BlueZ resolves GAP/GATT but the HID characteristics stay
@@ -38,7 +38,7 @@ connect_output=$(timeout 5s bluetoothctl connect "$bluetooth_address" 2>&1) || t
 bond_ok=no
 attempt=0
 while [ "$attempt" -lt 5 ]; do
-    info=$(timeout 5s bluetoothctl info "$bluetooth_address" 2>&1) || true
+    info=$(bltctl info "$bluetooth_address" 2>&1) || true
     if echo "$info" | grep -q "Paired: yes" && echo "$info" | grep -q "Connected: yes"; then
         bond_ok=yes
         break
@@ -82,4 +82,4 @@ if [ "$1" = "--no-repair" ]; then
 fi
 
 echo "Connected without a valid bond; re-pairing."
-exec /bin/sh "$(dirname "$0")/repair.sh"
+exec /bin/sh "$BT_DIR/repair.sh"

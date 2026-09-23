@@ -141,10 +141,16 @@ echo 0 > /sys/devices/platform/bt/rfkill/rfkill0/state
 
 ### 3.4 `repair.sh` / `connect.sh`
 
-The device name lives in `device.conf`, sourced by every script and parsed by
-`main.lua`, with the default duplicated as a fallback in each. It used to be
+The device name lives in `device.conf`, parsed by `main.lua` and sourced by
+`lib.sh`, which both scripts source for their shared helpers. It used to be
 hardcoded in three places, which is how an unquoted `grep "$BT_DEVICE_NAME"`
 got in — unquoted, `grep` reads `Remote` as a filename and dies.
+
+The name is matched **exactly**, in the scripts (`device_macs` in `lib.sh`,
+against `Device <MAC> <name>` from `bluetoothctl devices`) and in `main.lua`
+(against `N: Name="<name>"`). A substring match took any device whose name
+merely contained the remote's, and two matches became a two-line address.
+Where more than one entry has the exact name, the first is used.
 
 `repair.sh` is the full `power off/on` → `remove` → `scan` → `pair` → `trust`
 → `connect` cycle. It is the only thing that recovers a bond the remote has
