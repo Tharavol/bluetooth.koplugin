@@ -248,31 +248,39 @@ end
 tap brings the remote all the way up. (Watch the colon — `self.onDeviceRepair()`
 silently misbehaves.)
 
-**d. The input device is resolved at runtime.** `findInputDevice()` reads the
-`N: Name="Kobo Remote"` block out of `/proc/bus/input/devices` and takes its
-`H: Handlers=` line, rather than assuming `event3`.
+**d. The input device is resolved at runtime.** `findInputDevices()` reads
+every `N: Name="Kobo Remote"` block out of `/proc/bus/input/devices` and takes
+each one's `H: Handlers=` line, rather than assuming `event3`.
 
-Two traps here, both confirmed the hard way:
+Three traps here, all confirmed the hard way:
+
+- **There can be more than one.** The remote has shown up as two identically
+  named uhid devices (`…0004` on `event3`, `…0005` on `event4`, same MAC),
+  of which `evtest` showed only `event4` delivering `MSC_SCAN`. Taking the first
+  match opened the dead one: connected, `Connection successful!`, no page
+  turns. Every match is opened now — a device that never sends anything costs
+  nothing to hold. Why BlueZ left two is not established.
 
 - `/proc/bus/input/devices` and `/dev/input/` are **not in sync**. The kernel
   lists the device immediately; the node is `udevd`'s job and lags. Opening as
   soon as the entry appeared failed with `No such file or directory`. The old
-  fixed `sleep 3` had been covering this by accident. `waitForInputDevice()`
-  now polls for a node that actually *opens*, and distinguishes "not there"
-  from "listed but no node" so the popup names the real problem.
+  fixed `sleep 3` had been covering this by accident. `waitForInputDevices()`
+  now polls until every listed node actually *opens*, and distinguishes "not
+  there" from "listed but no node" so the popup names the real problem.
 - **The same path can be a different device.** A disconnect destroys the uhid
   device and the reconnect can recreate it on the same event number, so a
   descriptor held across the cycle points at something that no longer exists —
   same path, different device, no events. Always close before opening, even
   when the path is unchanged.
 
-`bt_open_path` (module-level) tracks what is actually open; `closeInputDevice()`
-is the single place that releases it, called from `refreshPairing()`,
-`onBluetoothOff()` and the watcher.
+`bt_open_paths` (module-level) tracks what is actually open;
+`closeInputDevices()` releases all of it, called from `refreshPairing()` and
+`onBluetoothOff()`. The watcher closes individual paths as they disappear.
 
 **e. The watcher.** A `UIManager:scheduleIn` tick every 5 s compares
-`findInputDevice()` against `bt_open_path` and reconciles them: opens when the
-remote appears or its event number moves, drops the handle when it goes away.
+`findInputDevices()` against `bt_open_paths` and reconciles them path by path:
+opens what is newly listed, closes what is no longer listed, and leaves the
+rest alone so a live device isn't dropped when a sibling changes.
 Scheduled **once per process**, guarded by a module-level flag for the same
 reason as the adjust hook (§5) — `init()` runs for FileManager and again for
 ReaderUI, and two timers would race onto the same device. It logs rather than
@@ -409,11 +417,11 @@ apart from the failure itself. Check `df -h /` first.
    never confirmed, not reproducing. Every outcome is logged now: if
    `unattended reconnect was interrupted` appears, that confirms it and the fix
    is passing `false` for that parameter.
-4. **`bt_open_path` is per-process**, so it is nil after a KOReader restart.
+4. **`bt_open_paths` is per-process**, so it is empty after a KOReader restart.
    Believed harmless — nothing is open at that point either — but it means the
    close only covers handles opened in the current session. It is also a useful
-   tell when reading logs: two `watcher opened` lines with no `closing` between
-   them means KOReader restarted.
+   tell when reading logs: a `watcher opened` line for a path already opened,
+   with no `closing` for it in between, means KOReader restarted.
 5. **`/var/log` is a 16 KB tmpfs.** `on.sh` used to start `bluetoothd -d`
    into it, which wrapped within seconds. It no longer passes `-d` (#34), but
    the log is still small and short-lived, so any conclusion drawn from

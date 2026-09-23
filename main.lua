@@ -76,14 +76,13 @@ end
 
 local BT_DEVICE_NAME = readDeviceName()
 
--- The path we actually have open. The event number moves across reconnects, so
--- closing input_device_path could close something we never opened.
-local bt_open_path = nil
+-- The paths we actually have open. Event numbers move across reconnects, so
+-- closing whatever /proc lists now could close something we never opened.
+local bt_open_paths = {}
 
 -- local Bluetooth = EventListener:extend{
 local Bluetooth = InputContainer:extend{
     name = "Bluetooth",
-    input_device_path = "/dev/input/event3",  -- Device path
 }
 
 function Bluetooth:onDispatcherRegisterActions()
@@ -344,7 +343,7 @@ function Bluetooth:onBluetoothOff()
 
     -- The uhid device goes away with the stack, so drop our handle first
     -- rather than leaving it open against a device that no longer exists.
-    self:closeInputDevice()
+    self:closeInputDevices()
 
     -- Both return values are ignored on purpose: off.sh prints nothing on
     -- success, and dismissing the message doesn't call the teardown back, so
@@ -360,21 +359,29 @@ function Bluetooth:onRefreshPairing()
         return
     end
     if self:refreshPairing() then
-        self:popup(_("Bluetooth device at ") .. self.input_device_path .. " is now open.")
+        self:popup(_("Bluetooth device at ") .. table.concat(bt_open_paths, ", ") .. " is now open.")
     end
 end
 
--- Locate the remote's /dev/input/eventN by name. The number is not stable
--- across reconnects, so it has to be resolved every time rather than assumed.
--- Blocks look like:
+-- Locate every /dev/input/eventN carrying the remote's name. The numbers are
+-- not stable across reconnects, so they have to be resolved every time rather
+-- than assumed. Blocks look like:
 --   N: Name="Kobo Remote"
 --   H: Handlers=sysrq leds event3
-function Bluetooth:findInputDevice()
+--
+-- Every match, not the first. BlueZ can leave more than one uhid device for the
+-- same remote: the Kobo Remote has shown up on the Sage as two identically
+-- named devices, only one of which delivered any events -- and the first match
+-- was the dead one, so the remote was connected but turned no pages. A device
+-- that never sends anything costs nothing to hold open, so holding them all is
+-- the one choice that can't pick wrong.
+function Bluetooth:findInputDevices()
+    local paths = {}
     local f = io.open("/proc/bus/input/devices", "r")
     if not f then
-        return nil
+        return paths
     end
-    local in_block, path = false, nil
+    local in_block = false
     for line in f:lines() do
         local name = line:match('^N: Name="(.*)"%s*$')
         if name then
@@ -384,16 +391,16 @@ function Bluetooth:findInputDevice()
         elseif in_block then
             local ev = line:match("^H: Handlers=.*(event%d+)")
             if ev then
-                path = "/dev/input/" .. ev
-                break
+                table.insert(paths, "/dev/input/" .. ev)
+                in_block = false
             end
         end
     end
     f:close()
-    return path
+    return paths
 end
 
--- Poll for a device node we can actually open.
+-- Poll until every listed device has a node we can actually open.
 --
 -- /proc/bus/input/devices lists the kernel's input device, but the /dev node
 -- is created separately and not at the same instant -- and the entry can be
@@ -401,56 +408,76 @@ end
 -- produced "Error opening input device </dev/input/event3>: No such file or
 -- directory" on a reconnect.
 --
--- Returns the path, or nil plus the path that was listed but not openable, so
--- the caller can tell "remote isn't there" from "node never appeared".
-function Bluetooth:waitForInputDevice()
-    local listed = nil
+-- Returns the openable paths and the listed ones, so the caller can tell
+-- "remote isn't there" (nothing listed) from "node never appeared" (listed,
+-- none openable).
+function Bluetooth:waitForInputDevices()
+    local ready, listed = {}, {}
     for i = 0, BT_INPUT_WAIT do
         if i > 0 then
             os.execute("sleep 1")
         end
-        local path = self:findInputDevice()
-        if path then
-            listed = path
+        listed, ready = self:findInputDevices(), {}
+        for _i, path in ipairs(listed) do
             local f = io.open(path, "r")
             if f then
                 f:close()
-                return path
+                table.insert(ready, path)
             end
         end
+        if #listed > 0 and #ready == #listed then
+            break
+        end
     end
-    return nil, listed
+    return ready, listed
 end
 
--- Drop the handle we hold, if any. Safe to call when nothing is open.
-function Bluetooth:closeInputDevice()
-    if not bt_open_path then
-        return
-    end
-    local closed, close_err = pcall(function() Device.input:close(bt_open_path) end)
+-- Drop one handle we hold. Not fatal if the close fails, but it means the
+-- handle leaked, so log it rather than swallowing it -- it shows up in
+-- crash.log if the call is wrong.
+local function closeInputPath(path)
+    local closed, close_err = pcall(function() Device.input:close(path) end)
     if not closed then
-        -- Not fatal, but it means the handle leaked. Log it rather than
-        -- swallowing it, so it shows up in crash.log if the call is wrong.
-        logger.warn("Bluetooth: could not close " .. bt_open_path .. ": " .. tostring(close_err))
+        logger.warn("Bluetooth: could not close " .. path .. ": " .. tostring(close_err))
     end
-    bt_open_path = nil
 end
 
--- Open path, dropping whatever we currently hold first. Returns false plus the
--- error rather than reporting it, so the caller decides whether it deserves a
--- popup: the menu paths want one, the watcher has to stay silent.
-function Bluetooth:reopenInputDevice(path)
-    self:closeInputDevice()
+-- Drop every handle we hold. Safe to call when nothing is open.
+function Bluetooth:closeInputDevices()
+    for _i, path in ipairs(bt_open_paths) do
+        closeInputPath(path)
+    end
+    bt_open_paths = {}
+end
 
+-- Open one more path alongside whatever we already hold. Returns false plus
+-- the error rather than reporting it, so the caller decides whether it deserves
+-- a popup: the menu paths want one, the watcher has to stay silent.
+function Bluetooth:openInputDevice(path)
     local ok, err = pcall(function()
         Device.input:open(path)
     end)
     if not ok then
         return false, err
     end
+    table.insert(bt_open_paths, path)
+    return true
+end
 
-    bt_open_path = path
-    self.input_device_path = path
+-- Open exactly these paths, dropping whatever we currently hold first. True
+-- if at least one opened; otherwise false plus the last error.
+function Bluetooth:reopenInputDevices(paths)
+    self:closeInputDevices()
+    local last_err
+    for _i, path in ipairs(paths) do
+        local ok, err = self:openInputDevice(path)
+        if not ok then
+            last_err = err
+        end
+    end
+    if #bt_open_paths == 0 then
+        return false, last_err
+    end
     return true
 end
 
@@ -514,26 +541,46 @@ local function btWatchTick()
     bt_watch_scheduled = false
 
     if Bluetooth:isBluetoothOn() then
-        local path = Bluetooth:findInputDevice()
-        if path then
-            if path ~= bt_open_path then
-                -- Either the remote just appeared or it moved; either way the
-                -- fd we hold, if any, is stale.
-                local ok, err = Bluetooth:reopenInputDevice(path)
-                if ok then
-                    logger.info("Bluetooth: watcher opened the remote at " .. path)
+        local paths = Bluetooth:findInputDevices()
+        if #paths > 0 then
+            -- Reconcile what we hold with what is listed: close what has gone,
+            -- open what is new, and leave the rest alone so a live remote isn't
+            -- dropped for a moment whenever one of its siblings changes.
+            local listed = {}
+            for _i, path in ipairs(paths) do
+                listed[path] = true
+            end
+            local kept, held = {}, {}
+            for _i, path in ipairs(bt_open_paths) do
+                if listed[path] then
+                    table.insert(kept, path)
+                    held[path] = true
                 else
-                    -- Typically the udev lag -- /proc lists the device before
-                    -- the node exists. The next tick picks it up, so stay quiet.
-                    logger.dbg("Bluetooth: watcher could not open " .. path .. ": " .. tostring(err))
+                    logger.info("Bluetooth: watcher closing " .. path .. "; it is no longer listed")
+                    closeInputPath(path)
+                end
+            end
+            bt_open_paths = kept
+            for _i, path in ipairs(paths) do
+                if not held[path] then
+                    local ok, err = Bluetooth:openInputDevice(path)
+                    if ok then
+                        logger.info("Bluetooth: watcher opened the remote at " .. path)
+                    else
+                        -- Typically the udev lag -- /proc lists the device
+                        -- before the node exists. The next tick picks it up,
+                        -- so stay quiet.
+                        logger.dbg("Bluetooth: watcher could not open " .. path .. ": " .. tostring(err))
+                    end
                 end
             end
         else
-            if bt_open_path then
-                -- The remote went away. Drop the handle instead of leaving it
-                -- pointing at a destroyed uhid device until the next connect.
-                logger.info("Bluetooth: watcher closing " .. bt_open_path .. "; the remote is gone")
-                Bluetooth:closeInputDevice()
+            if #bt_open_paths > 0 then
+                -- The remote went away. Drop the handles instead of leaving
+                -- them pointing at destroyed uhid devices until the next connect.
+                logger.info("Bluetooth: watcher closing " .. table.concat(bt_open_paths, ", ") ..
+                            "; the remote is gone")
+                Bluetooth:closeInputDevices()
             end
             Bluetooth:tryReconnect()
         end
@@ -557,11 +604,11 @@ end
 -- reporting success: this pops up its own error, and claiming the device is
 -- open right after that is the common case when the event number has moved.
 function Bluetooth:refreshPairing()
-    local path, listed = self:waitForInputDevice()
-    if not path then
-        if listed then
-            self:popup(BT_DEVICE_NAME .. _(" is connected and listed as ") .. listed ..
-                       _(", but that device node does not exist."))
+    local ready, listed = self:waitForInputDevices()
+    if #ready == 0 then
+        if #listed > 0 then
+            self:popup(BT_DEVICE_NAME .. _(" is connected and listed as ") .. table.concat(listed, ", ") ..
+                       _(", but no device node for it exists."))
         else
             self:popup(_("Could not find ") .. BT_DEVICE_NAME ..
                        _(" in /proc/bus/input/devices. Is it connected?"))
@@ -569,13 +616,13 @@ function Bluetooth:refreshPairing()
         return false
     end
 
-    -- reopenInputDevice closes the previous fd first, which must happen even
-    -- when the path is unchanged: a disconnect destroys the uhid device and
+    -- reopenInputDevices closes the previous fds first, which must happen even
+    -- when the paths are unchanged: a disconnect destroys the uhid device and
     -- the reconnect can recreate it on the same event number, so the fd we
     -- hold refers to a device that no longer exists. Same path, different
     -- device, no events. Skipping the close here is why a reconnect onto the
     -- same eventN left the remote connected but dead.
-    local ok, err = self:reopenInputDevice(path)
+    local ok, err = self:reopenInputDevices(ready)
     if not ok then
         self:popup(_("Error: ") .. tostring(err))
         return false
