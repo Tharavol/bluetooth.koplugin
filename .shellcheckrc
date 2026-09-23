@@ -1,0 +1,4 @@
+# Resolve `. "$(dirname "$0")/..."` against the script's own directory, which is
+# where the plugin keeps device.conf and lib.sh.
+source-path=SCRIPTDIR
+external-sources=true

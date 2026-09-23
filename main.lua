@@ -7,10 +7,8 @@ This is a plugin to manage Bluetooth.
 local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local UIManager = require("ui/uimanager")
-local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Device = require("device")
-local EventListener = require("ui/widget/eventlistener")
 local Event = require("ui/event")  -- Add this line
 local Trapper = require("ui/trapper")
 local logger = require("logger")
@@ -89,10 +87,14 @@ local Bluetooth = InputContainer:extend{
 }
 
 function Bluetooth:onDispatcherRegisterActions()
-    Dispatcher:registerAction("bluetooth_on_action", {category="none", event="BluetoothOn", title=_("Bluetooth On"), general=true})
-    Dispatcher:registerAction("bluetooth_off_action", {category="none", event="BluetoothOff", title=_("Bluetooth Off"), general=true})
-    Dispatcher:registerAction("refresh_pairing_action", {category="none", event="RefreshPairing", title=_("Refresh Device Input"), general=true}) -- New action
-    Dispatcher:registerAction("connect_to_device_action", {category="none", event="ConnectToDevice", title=_("Connect to Device"), general=true}) -- New action
+    Dispatcher:registerAction("bluetooth_on_action",
+        {category="none", event="BluetoothOn", title=_("Bluetooth On"), general=true})
+    Dispatcher:registerAction("bluetooth_off_action",
+        {category="none", event="BluetoothOff", title=_("Bluetooth Off"), general=true})
+    Dispatcher:registerAction("refresh_pairing_action",
+        {category="none", event="RefreshPairing", title=_("Refresh Device Input"), general=true})
+    Dispatcher:registerAction("connect_to_device_action",
+        {category="none", event="ConnectToDevice", title=_("Connect to Device"), general=true})
 end
 
 function Bluetooth:registerKeyEvents()

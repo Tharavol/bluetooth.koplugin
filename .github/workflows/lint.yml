@@ -1,0 +1,24 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Checked as sh, not bash: the device runs every script under busybox
+      # ash, whatever the shebang says. .shellcheckrc lets -x follow the
+      # sourced device.conf and lib.sh.
+      - run: shellcheck --version
+      - run: shellcheck -x -s sh ./*.sh uhid/run.sh
+
+  luacheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lunarmodules/luacheck@v1
+        with:
+          args: main.lua
