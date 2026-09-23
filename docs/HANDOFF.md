@@ -88,7 +88,7 @@ Path: `/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/`
 
 ```sh
 #!/bin/sh
-cd "$(dirname "$0")"
+cd /
 
 killall rtk_hciattach 2>/dev/null
 killall bluetoothd 2>/dev/null
@@ -108,7 +108,7 @@ sleep 2
 echo "complete"
 ```
 
-Three non-obvious requirements are encoded here:
+Four non-obvious requirements are encoded here:
 
 1. **Output redirection is mandatory, not cosmetic.** `rtk_hciattach` is a
    *resident* process (H5 needs a process servicing the link continuously —
@@ -119,7 +119,12 @@ Three non-obvious requirements are encoded here:
    like a crash.
 2. **`setsid` for bluetoothd.** Started with a plain `&` from an interactive
    shell it dies with the session. This wasted time repeatedly.
-3. **Unconditional rfkill power-cycle.** `hci0` regularly ends up
+3. **`cd /`, not into the plugin directory.** Both daemons are resident and
+   inherit the script's working directory. Left on `/mnt/onboard`, they hold
+   the user partition busy, and KOReader's USB mass storage refuses to start
+   with `Filesystem is busy! Offending processes: rtk_hciattach, bluetoothd`
+   (#44).
+4. **Unconditional rfkill power-cycle.** `hci0` regularly ends up
    attached-but-`DOWN`, at which point `hciconfig hci0 up` fails with
    `Connection timed out (110)`. Only a full rfkill 0→1 cycle followed by a
    fresh `rtk_hciattach` recovers it. Doing this every time is cheap insurance;
@@ -132,7 +137,7 @@ existing pairing/connection and takes a few seconds.
 
 ```sh
 #!/bin/sh
-cd "$(dirname "$0")"
+cd /
 hciconfig hci0 down
 killall rtk_hciattach
 killall bluetoothd

@@ -1,5 +1,9 @@
 #!/bin/sh
-cd "$(dirname "$0")" || exit 1
+# Run from /, not from the plugin directory. rtk_hciattach and bluetoothd are
+# resident and inherit this directory as their cwd; left on /mnt/onboard, they
+# hold that filesystem busy and USB mass storage refuses to start. Nothing below
+# uses a relative path.
+cd / || exit 1
 
 killall rtk_hciattach 2>/dev/null
 killall bluetoothd 2>/dev/null
