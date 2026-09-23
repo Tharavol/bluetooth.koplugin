@@ -102,7 +102,7 @@ echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
 sleep 2
 hciconfig hci0 up
 
-setsid /libexec/bluetooth/bluetoothd -n -d > /var/log/bluetoothd.log 2>&1 &
+setsid /libexec/bluetooth/bluetoothd -n > /var/log/bluetoothd.log 2>&1 &
 sleep 2
 
 echo "complete"
@@ -398,10 +398,11 @@ apart from the failure itself. Check `df -h /` first.
    close only covers handles opened in the current session. It is also a useful
    tell when reading logs: two `watcher opened` lines with no `closing` between
    them means KOReader restarted.
-5. **`bluetoothd -d` logs into a 16 KB tmpfs.** `on.sh` writes
-   `/var/log/bluetoothd.log`, which fills in seconds, so any conclusion drawn
-   from something being *absent* in that log is unsafe. Redirect somewhere with
-   space when debugging (§8).
+5. **`/var/log` is a 16 KB tmpfs.** `on.sh` used to start `bluetoothd -d`
+   into it, which wrapped within seconds. It no longer passes `-d` (#34), but
+   the log is still small and short-lived, so any conclusion drawn from
+   something being *absent* in it is unsafe. For debug output, start a debug
+   daemon by hand pointed somewhere with room (§8).
 6. **The four `[General]` lines of `main.conf` are gone**, destroyed by `sed -i`
    on a full disk before a backup existed. Everything has worked on BlueZ
    defaults since. If a pristine copy ever turns up in a firmware package,

@@ -13,7 +13,10 @@ echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
 sleep 2
 hciconfig hci0 up
 
-setsid /libexec/bluetooth/bluetoothd -n -d > /var/log/bluetoothd.log 2>&1 &
+# No -d: /var/log is a 16 KB tmpfs, debug output wraps it within seconds, and
+# the logging costs wakeups on a battery device for a log nobody can read.
+# HANDOFF section 8 has the command for a debug daemon logging somewhere with room.
+setsid /libexec/bluetooth/bluetoothd -n > /var/log/bluetoothd.log 2>&1 &
 sleep 2
 
 # Only report success if the controller actually came up. hci0 regularly ends
