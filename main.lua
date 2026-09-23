@@ -302,8 +302,19 @@ end
 --
 -- Needs to run inside Trapper:wrap(); outside one, Trapper logs a warning and
 -- falls back to a blocking io.popen, which is exactly today's behaviour.
+--
+-- The script's output is collected by the shell and written in one piece when
+-- it exits, always with at least a newline. Trapper decides the script is done
+-- by polling the pipe with FIONREAD, and then reads the rest with a blocking
+-- read("*all") on the UI thread, which gives two failure modes:
+--   * no output at all (off.sh on success): EOF reads as 0 bytes available,
+--     so it never completes, and the message stays up until tapped away;
+--   * early output (repair.sh relaying bluetoothctl as it goes): the first
+--     line counts as done, and the blocking read then freezes the reader for
+--     the rest of the script.
+-- stderr is left alone and still goes to crash.log.
 function Bluetooth:executeScript(script, message)
-    local command = "/bin/sh " .. PLUGIN_DIR .. script
+    local command = "out=$(/bin/sh " .. PLUGIN_DIR .. script .. "); printf '%s\\n' \"$out\""
     return Trapper:dismissablePopen(command, message)
 end
 
@@ -320,7 +331,7 @@ function Bluetooth:onBluetoothOn()
         return
     end
 
-    if not result or result == "" then
+    if not result or not result:match("%S") then
         self:popup(_("Error: No result from the Bluetooth script"))
         return
     end
