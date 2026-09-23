@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 BT_DEVICE_NAME="Kobo Remote"  # fallback if device.conf is missing
 # shellcheck source=device.conf
