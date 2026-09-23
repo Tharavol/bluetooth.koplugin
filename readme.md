@@ -80,6 +80,9 @@ for `*.koplugin`, and a mis-named directory (GitHub's "Download ZIP" gives you
 `bluetooth.koplugin-main`) means the plugin silently never loads — no error, and
 nothing in `crash.log`.
 
+When upgrading, copy the whole folder rather than individual files: the
+scripts share `lib.sh`, and `connect.sh` and `repair.sh` fail without it.
+
 Make sure the `.sh` files have LF line endings and are executable.
 `.gitattributes` forces LF on checkout so a clone made on Windows stays usable.
 
@@ -135,6 +138,10 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
   fill it. Beware editing config files on a full rootfs: `sed -i` writes a
   temp file and renames it over the original, so it will happily replace
   `/etc/bluetooth/main.conf` with an empty one and report nothing.
+- **An open SSH session blocks USB share.** KOReader's SSH server
+  (`dropbear`) runs from `/mnt/onboard`, so USB mass storage reports the
+  filesystem busy while it is up. Turn SSH off first. Bluetooth itself no longer
+  gets in the way.
 - **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned.
 - `device.lua.patch` and `uhid/` are inherited from upstream and are **not** part
   of the Sage setup described here. `uhid` is compiled into this kernel, and the

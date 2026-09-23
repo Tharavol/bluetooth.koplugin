@@ -6,6 +6,69 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.3.0 — 2026-09-23 — Scripts you can trust, USB share unblocked
+
+The remote turns pages again after a fresh pairing, USB share works with
+Bluetooth on, and toggling Bluetooth no longer leaves the screen stuck until
+it is tapped. Underneath, the scripts now say "connected" only when the bond
+really is there, pick the remote by its exact name, and are linted in CI. All
+of it confirmed on the Sage.
+
+**Upgrading:** copy the whole folder. `connect.sh` and `repair.sh` now source
+a new `lib.sh` and fail without it.
+
+### Fixed
+
+- **Connected, but no page turns.** BlueZ creates two input devices named
+  `Kobo Remote` on every fresh pairing, and only one of them delivers button
+  presses. The plugin opened the first match, which on the Sage was the dead
+  one, so the remote showed `Connection successful!` and did nothing. Every
+  device with the remote's name is opened now; a dead one costs nothing to
+  hold. The watcher reconciles them path by path, so a live device is not
+  dropped when a sibling changes. Why BlueZ makes two is not established.
+  (#46)
+- **The screen stuck on toggle, off and on.** KOReader's `Trapper` treats a
+  script as finished once output is waiting on the pipe, then reads the rest
+  with a blocking read on the UI thread. `off.sh` prints nothing, so it never
+  counted as finished and its message stayed up until tapped. `repair.sh`
+  prints as it goes, so its first line counted as finished and the rest of
+  the re-pair froze the reader. The shell now collects each script's output
+  and hands it over in one piece at exit. (#47)
+- **USB share refused to start** with `Filesystem is busy! Offending
+  processes: rtk_hciattach, bluetoothd`. `on.sh` started both daemons from the
+  plugin folder, so their working directory held `/mnt/onboard` busy. They
+  start from `/` now. An open SSH session still blocks USB share, because
+  KOReader's `dropbear` runs from `/mnt/onboard`. (#44)
+- **`repair.sh` reported success on `bluetoothctl`'s word.** A connect says
+  `Connection successful` in the `Connected: yes` / `Paired: no` state, and a
+  failed pair or trust went unnoticed. On the path that has already removed
+  the old bond, that was the least verified outcome of all. It now reports
+  success only once `Paired: yes` and `Connected: yes` both hold, sharing
+  `connect.sh`'s bond poll (now `wait_for_bond` in `lib.sh`). (#32)
+- **The remote was picked by substring.** Any device whose name contained
+  `Kobo Remote` matched, and two matches made a two-line address that
+  `bluetoothctl` rejected with an unrelated-looking error. The scripts and
+  `main.lua` now compare the whole name. (#35)
+- `connect.sh` and `repair.sh` declared `#!/bin/bash`, which stock Kobo
+  firmware lacks. They declare `/bin/sh`, which is what always ran them. (#37)
+
+### Changed
+
+- `bluetoothd` no longer runs with `-d`. Debug output wrapped `/var/log`, a
+  16 KB tmpfs, within seconds, and cost wakeups for a log nobody could read.
+  HANDOFF §8 has the command for a debug daemon logging somewhere with room.
+  (#34)
+- `repair.sh` uses a shell function instead of a command stored in a string,
+  and a `for` loop instead of a piped `while read`. The `sleep 2` after its
+  scan is gone: the scan was measured at the full 5 s, and discovery stops
+  when `timeout` ends `bluetoothctl`, so the sleep ran with discovery already
+  off. A re-pair is 2 s shorter. (#38)
+
+### Added
+
+- CI runs shellcheck (as `sh`, following sourced files) over the scripts and
+  luacheck over `main.lua` on every push. (#40)
+
 ## v1.2.3 — 2026-07-25 — License restored
 
 No behaviour change.
