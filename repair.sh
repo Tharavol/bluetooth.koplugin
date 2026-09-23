@@ -18,9 +18,12 @@ for bluetooth_address in $(device_macs); do
   bltctl remove "$bluetooth_address"
 done
 
-# scan for new device
+# Scan for the remote. bluetoothctl keeps discovery running for as long as it
+# runs, so this is a 5 s scan that ends when timeout kills it -- measured on
+# the Sage at the full 5 s. Devices it found stay known to bluetoothd after
+# discovery stops, which is all the pair below needs. A sleep after it used
+# to add 2 s with discovery already off.
 bltctl scan on
-sleep 2
 
 bluetooth_address=$(device_macs | head -n 1)
 if [ -z "$bluetooth_address" ]; then
