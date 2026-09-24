@@ -7,3 +7,6 @@ self = false
 
 -- `_` is gettext here, so unused loop indices are spelled `_i` instead.
 ignore = { "213/_.*" }
+
+-- KOReader's global settings object.
+read_globals = { "G_reader_settings" }

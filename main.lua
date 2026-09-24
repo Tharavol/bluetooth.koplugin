@@ -35,6 +35,10 @@ local BT_SCAN_BACK = 458834
 -- press must only fire once until a clear gap indicates a genuine release.
 local BT_REPEAT_GAP = 0.5
 
+-- Global KOReader setting behind "Invert page-turn buttons". Read on every
+-- press rather than cached, so the menu toggle takes effect immediately.
+local BT_INVERT_SETTING = "bluetooth_invert_page_turn"
+
 local PLUGIN_DIR = "/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/"
 
 -- Seconds to wait for the uhid node after the link comes up.
@@ -222,10 +226,17 @@ function Bluetooth:init()
                 if now - prev < BT_REPEAT_GAP then
                     return  -- still inside the same held-button repeat run
                 end
+                local step
                 if ev.value == BT_SCAN_FORWARD then
-                    UIManager:sendEvent(Event:new("GotoViewRel", 1))
+                    step = 1
                 elseif ev.value == BT_SCAN_BACK then
-                    UIManager:sendEvent(Event:new("GotoViewRel", -1))
+                    step = -1
+                end
+                if step then
+                    if G_reader_settings:isTrue(BT_INVERT_SETTING) then
+                        step = -step
+                    end
+                    UIManager:sendEvent(Event:new("GotoViewRel", step))
                 end
             end
         end)
@@ -286,6 +297,17 @@ function Bluetooth:addToMainMenu(menu_items)
                 end,
                 callback = function()
                     self:onRefreshPairing()
+                end,
+                separator = true,
+            },
+            {
+                text = _("Invert page-turn buttons"),
+                keep_menu_open = true,
+                checked_func = function()
+                    return G_reader_settings:isTrue(BT_INVERT_SETTING)
+                end,
+                callback = function()
+                    G_reader_settings:flipNilOrFalse(BT_INVERT_SETTING)
                 end,
             },
         },
