@@ -17,7 +17,7 @@ itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetoo
 
 | Fact | How confirmed |
 |---|---|
-| BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; `rtk_hciattach` init log prints `IC: RTL8821CS` |
+| BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; the Wi-Fi module is `8821cs`; `hciconfig hci0 version` reports `Manufacturer: Realtek Semiconductor Corporation (93)`, HCI/LMP 4.1, bus UART. (An earlier note said `rtk_hciattach`'s log prints `IC: RTL8821CS`; `/var/log/rtk_hciattach.log` from the plugin's own `-n` start is empty on the Sage, 2026-09-24.) |
 | BT is UART-attached on `/dev/ttyS1`, H5 (three-wire) protocol | Nickel runs `/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5` |
 | WiFi driver module is `8821cs` | `/sys/module/8821cs/parameters/rtw_btcoex_enable` exists |
 | Chip reset line exists in devicetree as node `bt` | `/sys/firmware/devicetree/base/bt/bt_rst_n` |

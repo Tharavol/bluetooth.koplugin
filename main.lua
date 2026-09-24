@@ -500,6 +500,13 @@ function Bluetooth:addToMainMenu(menu_items)
                 end,
             },
             {
+                text = _("Bluetooth info"),
+                keep_menu_open = true,
+                callback = function()
+                    self:onShowBluetoothInfo()
+                end,
+            },
+            {
                 text_func = function()
                     local actions = G_reader_settings:readSetting(BT_BUTTONS_SETTING, {})[BT_THIRD_KEY]
                     return _("Third button (Free3): ") ..
@@ -1106,6 +1113,33 @@ function Bluetooth:failurePopup(result)
     end
     local first = math.max(1, #lines - 7)
     self:popup(table.concat(lines, "\n", first))
+end
+
+-- KOReader knows devices by codename; the ones worth a readable name here.
+local DEVICE_NAMES = {
+    Kobo_cadmus = "Kobo Sage",
+}
+
+-- "Bluetooth info": which hardware and stack this is running on (#50). The
+-- device and on/off state come from here; the rest from info.sh, which
+-- queries the controller, the loaded driver and BlueZ without changing
+-- anything.
+function Bluetooth:onShowBluetoothInfo()
+    if not Trapper:isWrapped() then
+        return Trapper:wrap(function() self:onShowBluetoothInfo() end)
+    end
+    local model = Device.model or "unknown"
+    local lines = {
+        _("Device: ") .. (DEVICE_NAMES[model] and DEVICE_NAMES[model] .. " (" .. model .. ")" or model),
+        _("Bluetooth: ") .. (self:isBluetoothOn() and _("on") or _("off")),
+    }
+    local completed, result = self:executeScript("info.sh", _("Reading Bluetooth info…"))
+    if completed and result then
+        for line in result:gmatch("[^\r\n]+") do
+            table.insert(lines, line)
+        end
+    end
+    self:popup(table.concat(lines, "\n"))
 end
 
 -- The success popup, naming the remote when the script said which one.

@@ -119,6 +119,10 @@ Everything else lives under **Bluetooth** on the settings tab, directly below
 - **Invert page-turn buttons** — swaps forward and back, for any remote.
 - **Turn on Bluetooth at startup** — on by default. Untick it to bring Bluetooth
   up only from the menu.
+- **Bluetooth info** — the device, whether Bluetooth is on, the controller
+  (manufacturer, Bluetooth version, bus, address), the chip as named by the
+  Wi-Fi driver, and the BlueZ version. Handy for bug reports. The controller
+  details need Bluetooth on, and the chip name needs Wi-Fi on.
 - **Third button (Free3): …** — KOReader's own action picker, the one gestures
   use. Whatever is chosen runs when the Free3's third button is pressed.
 
