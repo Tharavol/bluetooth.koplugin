@@ -3,9 +3,16 @@
 # Shared by connect.sh and repair.sh. Sourced, not run: the caller sets
 # BT_DIR to the plugin directory first.
 
-BT_DEVICE_NAME="Kobo Remote"  # fallback if device.conf is missing
+# The remotes, in order of preference, separated by "|". device.conf sets it;
+# an older device.conf naming a single BT_DEVICE_NAME still works, and with no
+# device.conf at all both known remotes are tried, the Free3 first.
+BT_DEVICE_NAMES=
+BT_DEVICE_NAME=
 # shellcheck source=device.conf
 . "$BT_DIR/device.conf" 2>/dev/null || true
+if [ -z "$BT_DEVICE_NAMES" ]; then
+    BT_DEVICE_NAMES=${BT_DEVICE_NAME:-"Free3-P|Kobo Remote"}
+fi
 
 # A function rather than a command in a string: "$bltctl" quoted, which is the
 # reflex fix for a word-splitting warning, would try to run a program called
@@ -14,8 +21,7 @@ bltctl() {
     timeout 5s bluetoothctl "$@"
 }
 
-# Print the MAC of every known device named exactly $BT_DEVICE_NAME, one per
-# line. `bluetoothctl devices` prints lines of the form
+# Print the MAC of every known device named exactly $1, one per line. `bluetoothctl devices` prints lines of the form
 #   Device AA:BB:CC:DD:EE:FF Kobo Remote
 # An unanchored grep for the name matched any device whose name merely
 # contained it, and two matches turned the address into two MACs. Escape
@@ -23,7 +29,7 @@ bltctl() {
 # decorates its output; the name comes in through the environment because
 # awk -v would interpret backslashes in it.
 device_macs() {
-    bltctl devices 2>/dev/null | BT_NAME="$BT_DEVICE_NAME" awk '
+    bltctl devices 2>/dev/null | BT_NAME="$1" awk '
         {
             gsub(/\033\[[0-9;]*[A-Za-z]/, "")
             gsub(/\r/, "")

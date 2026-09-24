@@ -75,31 +75,51 @@ local BT_RECONNECT_INTERVAL = 60
 -- bluetoothctl calls are capped at 5 s each, well inside the interval.
 local bt_last_reconnect = 0
 
--- Read from device.conf so the name lives in one place; the shell scripts
--- source the same file. Falls back to the default if it's missing.
+-- Read from device.conf so the names live in one place; the shell scripts
+-- source the same file. Falls back to both known remotes if it's missing.
 --
 -- Parsed the way sh reads it, so the two can't disagree: commented-out lines
 -- are skipped and the last assignment wins. Matching the first
 -- BT_DEVICE_NAME="..." anywhere in the file picked up a commented-out old
 -- name, so main.lua watched for one remote while the scripts paired another.
-local function readDeviceName()
-    local name = "Kobo Remote"
+--
+-- BT_DEVICE_NAMES is the list, in order of preference, separated by "|". An
+-- older device.conf with a single BT_DEVICE_NAME still works, as in lib.sh.
+local function readDeviceNames()
+    local list, single
     local f = io.open(PLUGIN_DIR .. "device.conf", "r")
-    if not f then
-        return name
-    end
-    for line in f:lines() do
-        local value = line:match('^%s*BT_DEVICE_NAME="([^"]+)"')
-                   or line:match("^%s*BT_DEVICE_NAME='([^']+)'")
-        if value then
-            name = value
+    if f then
+        for line in f:lines() do
+            local key, value = line:match('^%s*(BT_DEVICE_NAMES?)="([^"]+)"')
+            if not key then
+                key, value = line:match("^%s*(BT_DEVICE_NAMES?)='([^']+)'")
+            end
+            if key == "BT_DEVICE_NAMES" then
+                list = value
+            elseif key == "BT_DEVICE_NAME" then
+                single = value
+            end
         end
+        f:close()
     end
-    f:close()
-    return name
+    local names = {}
+    for name in (list or single or "Free3-P|Kobo Remote"):gmatch("[^|]+") do
+        table.insert(names, name)
+    end
+    return names
 end
 
-local BT_DEVICE_NAME = readDeviceName()
+-- In order of preference, and as a set for matching input devices.
+local BT_DEVICE_NAMES = readDeviceNames()
+local BT_DEVICE_NAME_SET = {}
+for _i, name in ipairs(BT_DEVICE_NAMES) do
+    BT_DEVICE_NAME_SET[name] = true
+end
+
+-- Quote a string for sh, for passing a remote's name to a script.
+local function shellQuote(str)
+    return "'" .. str:gsub("'", "'\\''") .. "'"
+end
 
 -- The paths we actually have open. Event numbers move across reconnects, so
 -- closing whatever /proc lists now could close something we never opened.
@@ -303,8 +323,19 @@ function Bluetooth:addToMainMenu(menu_items)
                 enabled_func = function()
                   return self:isBluetoothOn()
                 end,
-                callback = function()
-                    self:onDeviceRepair()
+                -- One entry per remote: a re-pair removes that remote's bond
+                -- before rebuilding it, so it has to be aimed at one.
+                sub_item_table_func = function()
+                    local items = {}
+                    for _i, name in ipairs(BT_DEVICE_NAMES) do
+                        table.insert(items, {
+                            text = name,
+                            callback = function()
+                                self:onDeviceRepair(name)
+                            end,
+                        })
+                    end
+                    return items
                 end,
             },
             {
@@ -413,9 +444,12 @@ function Bluetooth:onBluetoothOn()
     end
 
     if result:match("complete") then
-        -- on.sh succeeded; go straight into pair/connect so a single menu tap
-        -- brings the remote all the way up. onDeviceRepair shows its own popup.
-        self:onDeviceRepair()
+        -- on.sh succeeded; go straight into connecting so a single menu tap
+        -- brings a remote all the way up. Connect rather than re-pair: a
+        -- re-pair throws away bonds that are usually fine, and connect.sh
+        -- still hands over to repair.sh for a remote whose bond is gone.
+        -- onConnectToDevice shows its own popup.
+        self:onConnectToDevice()
     else
         self:popup(_("Result: ") .. result)
     end
@@ -474,7 +508,7 @@ function Bluetooth:findInputDevices()
         if name then
             -- Exact, like the scripts: a substring match would also take any
             -- other device whose name merely contains the remote's.
-            in_block = name == BT_DEVICE_NAME
+            in_block = BT_DEVICE_NAME_SET[name] == true
         elseif in_block then
             local ev = line:match("^H: Handlers=.*(event%d+)")
             if ev then
@@ -694,10 +728,10 @@ function Bluetooth:refreshPairing()
     local ready, listed = self:waitForInputDevices()
     if #ready == 0 then
         if #listed > 0 then
-            self:popup(BT_DEVICE_NAME .. _(" is connected and listed as ") .. table.concat(listed, ", ") ..
+            self:popup(_("The remote is connected and listed as ") .. table.concat(listed, ", ") ..
                        _(", but no device node for it exists."))
         else
-            self:popup(_("Could not find ") .. BT_DEVICE_NAME ..
+            self:popup(_("Could not find ") .. table.concat(BT_DEVICE_NAMES, _(" or ")) ..
                        _(" in /proc/bus/input/devices. Is it connected?"))
         end
         return false
@@ -718,9 +752,10 @@ function Bluetooth:refreshPairing()
     return true
 end
 
-function Bluetooth:onDeviceRepair()
+-- Re-pair one remote by name; with no name, repair.sh takes the first listed.
+function Bluetooth:onDeviceRepair(name)
     if not Trapper:isWrapped() then
-        return Trapper:wrap(function() self:onDeviceRepair() end)
+        return Trapper:wrap(function() self:onDeviceRepair(name) end)
     end
 
     if not self:isBluetoothOn() then
@@ -728,7 +763,11 @@ function Bluetooth:onDeviceRepair()
         return
     end
     local script = self:getScriptPath("repair.sh")
-    local completed, result = self:executeScript(script, _("Pairing with the remote…"))
+    if name then
+        script = script .. " " .. shellQuote(name)
+    end
+    local completed, result = self:executeScript(script,
+        _("Pairing with ") .. (name or BT_DEVICE_NAMES[1]) .. _("… Put it in pairing mode."))
 
     if not completed then
         logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
@@ -745,7 +784,7 @@ function Bluetooth:onDeviceRepair()
     if success then
         -- refreshPairing polls for the uhid node, so no fixed sleep needed
         if self:refreshPairing() then
-            self:popup(_("Connection successful!"))
+            self:popup(self:connectedMessage(result))
         end
     else
         self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
@@ -790,11 +829,20 @@ function Bluetooth:onConnectToDevice()
 
         -- refreshPairing polls for the uhid node, so no fixed sleep needed
         if self:refreshPairing() then
-            self:popup(_("Connection successful!"))
+            self:popup(self:connectedMessage(result))
         end
     else
         self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
     end
+end
+
+-- The success popup, naming the remote when the script said which one.
+function Bluetooth:connectedMessage(result)
+    local name = result:match("Remote: ([^\n]+)")
+    if name then
+        return _("Connected to ") .. name .. "."
+    end
+    return _("Connection successful!")
 end
 
 function Bluetooth:isBluetoothOn()
