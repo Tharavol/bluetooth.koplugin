@@ -388,11 +388,21 @@ function Bluetooth:init()
                     return
                 end
                 local last = math.max(bt_last_code[value] or 0, bt_last_bare_syn)
-                bt_last_code[value] = now
-                if bt_pending[value] and now - last < BT_PAIR_GAP then
-                    bt_pending[value] = false
-                    return  -- the press's second code
+                if bt_pending[value] then
+                    if now - last < BT_PAIR_GAP then
+                        bt_pending[value] = false
+                        bt_last_code[value] = now
+                        return  -- the press's second code
+                    end
+                    -- A pair left open this long means the second code went
+                    -- missing, or a held button's empty reports did. Log the
+                    -- timing, so a wrong page turn can be traced from crash.log.
+                    logger.info(string.format("Bluetooth: press of 0x%x abandoned its pair: " ..
+                        "%.2f s since its first code, last empty report %s",
+                        value, now - (bt_last_code[value] or 0),
+                        bt_last_bare_syn > 0 and string.format("%.2f s ago", now - bt_last_bare_syn) or "never"))
                 end
+                bt_last_code[value] = now
                 bt_pending[value] = true
                 local step
                 if ev.value == BT_SCAN_FORWARD then
