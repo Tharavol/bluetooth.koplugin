@@ -188,7 +188,14 @@ It also **waits for the old `rtk_hciattach` and `bluetoothd` to exit** after
 line's discipline as it exits. If the new one has already attached by then,
 that detaches it: `Device setup complete` in the log, and no `hci0`. This hit
 every run of `on.sh` with Bluetooth already on, and a retry always recovered
-it, because by then nothing old was left. Each failed attempt writes `hciconfig hci0` and the
+it, because by then nothing old was left.
+
+With that fixed, restarting a running stack still failed its first attempt,
+this time at the H5 sync: `h5 hdr checksum error`, SYNC timeouts, then
+`Retransmission exhausts`. The rfkill-off lasted 1 s. With the radio held off
+for 4–6 s first, by `off.sh` plus a pause or by hand, it synced at once. So
+`bring_up` holds rfkill at 0 for **4 s when the radio was on**, and for 1 s
+from off, where that has always been enough. Each failed attempt writes `hciconfig hci0` and the
 attach log to `crash.log`, tagged `[bluetooth]`. It stops `rtk_hciattach`
 first, because the log is only written when the process exits.
 

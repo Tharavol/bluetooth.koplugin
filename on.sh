@@ -38,6 +38,9 @@ hci0_up() {
 # rfkill 0->1 cycle and a fresh rtk_hciattach recover it, so this does both
 # every time.
 bring_up() {
+    # Was the radio on? Then it needs holding off longer; see below.
+    was_on=$(cat /sys/devices/platform/bt/rfkill/rfkill0/state 2>/dev/null)
+
     killall rtk_hciattach 2>/dev/null
     killall bluetoothd 2>/dev/null
     # killall only signals. The old rtk_hciattach restores the serial line's
@@ -49,7 +52,17 @@ bring_up() {
     hciconfig hci0 down 2>/dev/null
 
     echo 0 > /sys/devices/platform/bt/rfkill/rfkill0/state
-    sleep 1
+    # A chip that was just running needs a few seconds off before it resets.
+    # With 1 s, restarting a running stack failed the H5 sync every time on
+    # the Sage ("h5 hdr checksum error", then SYNC timeouts until
+    # "Retransmission exhausts"), and only the retry recovered. With the radio
+    # held off for 4-6 s first, it synced at once. From off, 1 s is plenty,
+    # so startup and resume don't pay for this.
+    if [ "$was_on" = 1 ]; then
+        sleep 4
+    else
+        sleep 1
+    fi
     echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
 
     /sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 > /var/log/rtk_hciattach.log 2>&1 &
