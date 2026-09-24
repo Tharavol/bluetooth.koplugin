@@ -138,8 +138,9 @@ local bt_autostart_done = false
 -- restarted, and a reconnect started then races the teardown -- seen on the
 -- Sage as a connect.sh running alongside on.sh at startup. A deadline rather
 -- than a flag, so a start that never reports back (a dismissed "Starting
--- Bluetooth" message) can't hold the watcher off for good.
-local BT_START_GRACE = 20
+-- Bluetooth" message) can't hold the watcher off for good. 40 s covers on.sh's
+-- worst case: two full attempts, each waiting up to 15 s for hci0.
+local BT_START_GRACE = 40
 local bt_starting_until = 0
 
 local function startingBluetooth()

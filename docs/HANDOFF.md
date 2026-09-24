@@ -177,7 +177,12 @@ The shipped script wraps the whole kill → rfkill → attach →
 `UP RUNNING` afterwards, it runs it **once more** (#49). The check has to come
 after `bluetoothd`: that is what powers the controller, and `hci0` is
 routinely not yet UP before it starts. A check placed before `bluetoothd`
-made every start retry. Each failed attempt writes `hciconfig hci0` and the
+made every start retry. The fixed `sleep 2`s are gone as well:
+`bring_up` polls, waiting up to 10 s for `hci0` to appear and up to 5 s for it
+to be `UP RUNNING`. The attach (sync at 115200, firmware download, switch to
+1.5 Mbaud) sometimes outlasted the fixed wait. The check then found no `hci0`,
+and the retry killed an attach that was about to succeed — probably the
+original startup failure too. Each failed attempt writes `hciconfig hci0` and the
 attach log to `crash.log`, tagged `[bluetooth]`. It stops `rtk_hciattach`
 first, because the log is only written when the process exits.
 

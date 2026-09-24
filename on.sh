@@ -5,6 +5,30 @@
 # uses a relative path.
 cd / || exit 1
 
+# wait_for SECONDS CHECK: run CHECK once a second until it succeeds or
+# SECONDS pass. Returns CHECK's last result.
+wait_for() {
+    n=0
+    while ! "$2"; do
+        n=$((n + 1))
+        if [ "$n" -ge "$1" ]; then
+            return 1
+        fi
+        sleep 1
+    done
+}
+
+hci0_exists() {
+    [ -e /sys/class/bluetooth/hci0 ]
+}
+
+# Checked only once bluetoothd is running: it is what powers the controller,
+# and hci0 is routinely not yet UP before it starts -- checking there made
+# every start retry (#49).
+hci0_up() {
+    hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"
+}
+
 # Power-cycle the chip, attach it and start bluetoothd. hci0 regularly ends up
 # attached-but-DOWN, at which point "hciconfig hci0 up" fails; only a full
 # rfkill 0->1 cycle and a fresh rtk_hciattach recover it, so this does both
@@ -19,7 +43,11 @@ bring_up() {
     echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
 
     /sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 > /var/log/rtk_hciattach.log 2>&1 &
-    sleep 2
+    # Wait for the attach instead of sleeping a fixed time. It syncs at
+    # 115200, downloads firmware and switches to 1.5 Mbaud, and on the Sage
+    # that sometimes outlasted the fixed wait: the check found no hci0 at all
+    # and the retry killed an attach that was about to succeed (#49).
+    wait_for 10 hci0_exists
     hciconfig hci0 up 2>/dev/null
 
     # No -d: /var/log is a 16 KB tmpfs, debug output wraps it within seconds,
@@ -27,15 +55,9 @@ bring_up() {
     # read. HANDOFF section 8 has the command for a debug daemon logging
     # somewhere with room.
     setsid /libexec/bluetooth/bluetoothd -n > /var/log/bluetoothd.log 2>&1 &
-    sleep 2
+    wait_for 5 hci0_up
 }
 
-# Checked only once bluetoothd is running: it is what powers the controller,
-# and hci0 is routinely not yet UP before it starts -- checking there made
-# every start retry (#49).
-hci0_up() {
-    hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"
-}
 
 # Record why an attempt failed, on stderr, which KOReader leaves pointing at
 # crash.log. rtk_hciattach buffers its output and writes it only when it exits
