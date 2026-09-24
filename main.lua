@@ -64,14 +64,26 @@ local bt_last_reconnect = 0
 
 -- Read from device.conf so the name lives in one place; the shell scripts
 -- source the same file. Falls back to the default if it's missing.
+--
+-- Parsed the way sh reads it, so the two can't disagree: commented-out lines
+-- are skipped and the last assignment wins. Matching the first
+-- BT_DEVICE_NAME="..." anywhere in the file picked up a commented-out old
+-- name, so main.lua watched for one remote while the scripts paired another.
 local function readDeviceName()
+    local name = "Kobo Remote"
     local f = io.open(PLUGIN_DIR .. "device.conf", "r")
     if not f then
-        return "Kobo Remote"
+        return name
     end
-    local content = f:read("*a")
+    for line in f:lines() do
+        local value = line:match('^%s*BT_DEVICE_NAME="([^"]+)"')
+                   or line:match("^%s*BT_DEVICE_NAME='([^']+)'")
+        if value then
+            name = value
+        end
+    end
     f:close()
-    return content:match('BT_DEVICE_NAME="([^"]+)"') or "Kobo Remote"
+    return name
 end
 
 local BT_DEVICE_NAME = readDeviceName()
