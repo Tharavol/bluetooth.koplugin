@@ -21,6 +21,20 @@ bltctl() {
     timeout 5s bluetoothctl "$@"
 }
 
+# stdout is the result main.lua shows the user, so it carries only outcomes.
+# bluetoothctl's own output -- scan results for every device in range, GATT
+# dumps, colour codes -- goes to stderr through this, which KOReader's popen
+# leaves pointing at crash.log. Tagged so it can be found there.
+diag() {
+    awk '{ gsub(/\033\[[0-9;]*m/, ""); gsub(/\r/, ""); print "[bluetooth] " $0 }' >&2
+}
+
+# The first error line in bluetoothctl output, for a one-line failure reason.
+first_error() {
+    printf '%s\n' "$@" | awk '{ gsub(/\033\[[0-9;]*m/, ""); gsub(/\r/, "") }
+        /Failed|[Ee]rror/ { print; exit }'
+}
+
 # Print the MAC of every known device named exactly $1, one per line. `bluetoothctl devices` prints lines of the form
 #   Device AA:BB:CC:DD:EE:FF Kobo Remote
 # An unanchored grep for the name matched any device whose name merely

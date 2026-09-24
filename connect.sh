@@ -16,7 +16,7 @@ if [ "$1" = "--no-repair" ]; then
 fi
 names=${1:-$BT_DEVICE_NAMES}
 
-bltctl power on
+bltctl power on 2>&1 | diag
 
 # Split the list on "|" into the positional parameters. Names contain spaces,
 # so IFS can't be left at its default for this; globbing is off in case one
@@ -39,6 +39,7 @@ for name in "$@"; do
     if [ -z "$bluetooth_address" ]; then
         continue  # never paired with this one
     fi
+    echo "$name: trying $bluetooth_address" | diag
     known=yes
 
     # Reconnect to the bond we already have. Capture the output rather than
@@ -56,9 +57,9 @@ for name in "$@"; do
         # Report on the verified state, not on the connect call. main.lua keys
         # off this exact string, and the connect's own output is not a
         # trustworthy source for it -- a reconnect can fail while the bond is
-        # perfectly fine. Relay the connect output for diagnostics; let the
-        # state have the word.
-        echo "$connect_output"
+        # perfectly fine. The connect output goes to crash.log for diagnostics;
+        # the verified state has the word.
+        echo "$connect_output" | diag
         echo "Remote: $name"
         echo "Connection successful"
         exit 0

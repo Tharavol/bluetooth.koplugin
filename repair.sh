@@ -9,17 +9,17 @@ BT_DIR=$(dirname "$0")
 name=${1:-${BT_DEVICE_NAMES%%|*}}
 
 # shut off the power, make sure its turned off
-bltctl power off
+bltctl power off 2>&1 | diag
 sleep 2
 # turn back the power, make sure it's come back online
-bltctl power on
+bltctl power on 2>&1 | diag
 sleep 2
 
 # Delete every old entry for the remote. A for loop rather than `| while read`,
 # which would run the body in a subshell and lose anything it set.
 for bluetooth_address in $(device_macs "$name"); do
-  echo "Removing $bluetooth_address"
-  bltctl remove "$bluetooth_address"
+  echo "Removing $bluetooth_address" | diag
+  bltctl remove "$bluetooth_address" 2>&1 | diag
 done
 
 # Scan for the remote. bluetoothctl keeps discovery running for as long as it
@@ -27,11 +27,12 @@ done
 # the Sage at the full 5 s. Devices it found stay known to bluetoothd after
 # discovery stops, which is all the pair below needs. A sleep after it used
 # to add 2 s with discovery already off.
-bltctl scan on
+bltctl scan on 2>&1 | diag
 
 bluetooth_address=$(device_macs "$name" | head -n 1)
 if [ -z "$bluetooth_address" ]; then
-    echo "$name not found. Is it on and in pairing mode?"
+    echo "$name was not found while scanning. Make sure it is on and advertising"
+    echo "(on the Kobo Remote, press a button), then try RePair again."
     exit 1
 fi
 pair_output=$(bltctl pair "$bluetooth_address" 2>&1) || true
@@ -43,20 +44,21 @@ connect_output=$(bltctl connect "$bluetooth_address" 2>&1) || true
 # that failed says nothing about it here. This is the destructive path -- the
 # old bond is already gone -- so it is the one that most needs to be sure.
 if wait_for_bond "$bluetooth_address"; then
-    echo "$pair_output"
-    echo "$trust_output"
-    echo "$connect_output"
+    printf '%s\n' "$pair_output" "$trust_output" "$connect_output" | diag
     echo "Remote: $name"
     # main.lua keys off this exact string.
     echo "Connection successful"
     exit 0
 fi
 
+# The full story goes to crash.log; the popup gets the outcome and the first
+# error bluetoothctl reported. Nothing from bluetoothctl reaches stdout here:
+# its own "Connection successful" would read to main.lua as ours.
+printf '%s\n' "$pair_output" "$trust_output" "$connect_output" "$bond_info" | diag
 echo "Pairing $name did not produce a working bond."
-echo "$pair_output"
-echo "$trust_output"
-# bluetoothctl prints its own "Connection successful", which main.lua would take
-# for ours. Keep the rest of the connect output for diagnosis.
-echo "$connect_output" | grep -v "Connection successful"
+reason=$(first_error "$pair_output" "$connect_output")
+if [ -n "$reason" ]; then
+    echo "$reason"
+fi
 echo "$bond_info" | grep -E "Paired:|Connected:"
 exit 1

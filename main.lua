@@ -458,7 +458,7 @@ function Bluetooth:onBluetoothOn()
         -- onConnectToDevice shows its own popup.
         self:onConnectToDevice()
     else
-        self:popup(_("Result: ") .. result)
+        self:failurePopup(result)
     end
 end
 
@@ -825,7 +825,7 @@ function Bluetooth:onDeviceRepair(name)
             self:popup(self:connectedMessage(result))
         end
     else
-        self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
+        self:failurePopup(result)
     end
 end
 
@@ -870,8 +870,22 @@ function Bluetooth:onConnectToDevice()
             self:popup(self:connectedMessage(result))
         end
     else
-        self:popup(_("Result: ") .. result)  -- Show full result for debugging if something goes wrong
+        self:failurePopup(result)
     end
+end
+
+-- Show a script's failure output. The scripts keep bluetoothctl's chatter out
+-- of stdout, but a raw dump once filled the whole screen with scan results,
+-- so strip colour codes and keep only the last few lines regardless.
+function Bluetooth:failurePopup(result)
+    local lines = {}
+    for line in result:gsub("\27%[[%d;]*m", ""):gmatch("[^\r\n]+") do
+        if line:match("%S") then
+            table.insert(lines, line)
+        end
+    end
+    local first = math.max(1, #lines - 7)
+    self:popup(table.concat(lines, "\n", first))
 end
 
 -- The success popup, naming the remote when the script said which one.
