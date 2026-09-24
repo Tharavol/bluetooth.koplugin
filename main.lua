@@ -25,11 +25,14 @@ local _ = require("gettext")
 local bt_hook_registered = false
 local bt_last_seen = {}
 
--- Scancodes reported by the official Kobo Remote (BLE HID-over-GATT).
--- NOTE: these are the values KOReader's own input pipeline sees, which are NOT
--- the same numbers evtest prints for the same button.
-local BT_SCAN_FORWARD = 458833
-local BT_SCAN_BACK = 458834
+-- MSC_SCAN values: HID usages, page in the high 16 bits. evtest prints them in
+-- hex. Keyboard Down/Up Arrow are what the official Kobo Remote sends, and what
+-- the Hanlinyue Free3 sends in P mode set to Up and Down Mode.
+local BT_SCAN_FORWARD = 0x70051  -- Keyboard Down Arrow
+local BT_SCAN_BACK = 0x70052     -- Keyboard Up Arrow
+-- The Free3's third (bottom) button, in every mode tested. The Kobo Remote has
+-- no equivalent. It runs whatever Dispatcher actions the menu assigns to it.
+local BT_SCAN_THIRD = 0x7002c    -- Keyboard Spacebar
 
 -- The remote auto-repeats while a button is held (~150-200ms cadence), so a
 -- press must only fire once until a clear gap indicates a genuine release.
@@ -38,6 +41,12 @@ local BT_REPEAT_GAP = 0.5
 -- Global KOReader setting behind "Invert page-turn buttons". Read on every
 -- press rather than cached, so the menu toggle takes effect immediately.
 local BT_INVERT_SETTING = "bluetooth_invert_page_turn"
+
+-- Global KOReader setting holding the third button's Dispatcher actions, in
+-- the shape Dispatcher:addSubMenu edits: a table of action lists keyed by
+-- button. It lives inside G_reader_settings, so edits persist with it.
+local BT_BUTTONS_SETTING = "bluetooth_button_actions"
+local BT_THIRD_KEY = "third"
 
 local PLUGIN_DIR = "/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/"
 
@@ -237,6 +246,14 @@ function Bluetooth:init()
                         step = -step
                     end
                     UIManager:sendEvent(Event:new("GotoViewRel", step))
+                elseif ev.value == BT_SCAN_THIRD then
+                    local actions = G_reader_settings:readSetting(BT_BUTTONS_SETTING, {})[BT_THIRD_KEY]
+                    if actions and next(actions) then
+                        -- Off the input path: an action may open a menu or
+                        -- reflow the book, which has no business running
+                        -- inside an event-adjust hook.
+                        UIManager:nextTick(function() Dispatcher:execute(actions) end)
+                    end
                 end
             end
         end)
@@ -310,8 +327,33 @@ function Bluetooth:addToMainMenu(menu_items)
                     G_reader_settings:flipNilOrFalse(BT_INVERT_SETTING)
                 end,
             },
+            {
+                text_func = function()
+                    local actions = G_reader_settings:readSetting(BT_BUTTONS_SETTING, {})[BT_THIRD_KEY]
+                    return _("Third button (Free3): ") ..
+                           (actions and Dispatcher:menuTextFunc(actions) or _("Nothing"))
+                end,
+                sub_item_table_func = function()
+                    -- KOReader's own action picker, as used for gestures and
+                    -- hotkeys. It edits the table in place and sets
+                    -- self.updated, which onFlushSettings picks up.
+                    local sub_items = {}
+                    Dispatcher:addSubMenu(self, sub_items,
+                        G_reader_settings:readSetting(BT_BUTTONS_SETTING, {}), BT_THIRD_KEY)
+                    return sub_items
+                end,
+            },
         },
     }
+end
+
+-- Dispatcher edits the button actions in place inside G_reader_settings and
+-- only marks us updated, so write them out when KOReader flushes settings.
+function Bluetooth:onFlushSettings()
+    if self.updated then
+        G_reader_settings:flush()
+        self.updated = nil
+    end
 end
 
 function Bluetooth:getScriptPath(script)
