@@ -18,6 +18,10 @@ wait_for() {
     done
 }
 
+old_stack_gone() {
+    ! pidof rtk_hciattach >/dev/null 2>&1 && ! pidof bluetoothd >/dev/null 2>&1
+}
+
 hci0_exists() {
     [ -e /sys/class/bluetooth/hci0 ]
 }
@@ -36,6 +40,12 @@ hci0_up() {
 bring_up() {
     killall rtk_hciattach 2>/dev/null
     killall bluetoothd 2>/dev/null
+    # killall only signals. The old rtk_hciattach restores the serial line's
+    # discipline as it exits, and if the new one has attached by then, that
+    # detaches it and hci0 vanishes. That happened on the Sage whenever this
+    # ran with Bluetooth already on: "Device setup complete" in the log, and
+    # no hci0 (#49). So wait for both to be gone before going on.
+    wait_for 5 old_stack_gone
     hciconfig hci0 down 2>/dev/null
 
     echo 0 > /sys/devices/platform/bt/rfkill/rfkill0/state

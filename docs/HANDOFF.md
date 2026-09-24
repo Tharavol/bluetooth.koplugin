@@ -181,8 +181,14 @@ made every start retry. The fixed `sleep 2`s are gone as well:
 `bring_up` polls, waiting up to 10 s for `hci0` to appear and up to 5 s for it
 to be `UP RUNNING`. The attach (sync at 115200, firmware download, switch to
 1.5 Mbaud) sometimes outlasted the fixed wait. The check then found no `hci0`,
-and the retry killed an attach that was about to succeed — probably the
-original startup failure too. Each failed attempt writes `hciconfig hci0` and the
+and the retry killed an attach that was about to succeed.
+
+It also **waits for the old `rtk_hciattach` and `bluetoothd` to exit** after
+`killall`, which only signals. The old `rtk_hciattach` restores the serial
+line's discipline as it exits. If the new one has already attached by then,
+that detaches it: `Device setup complete` in the log, and no `hci0`. This hit
+every run of `on.sh` with Bluetooth already on, and a retry always recovered
+it, because by then nothing old was left. Each failed attempt writes `hciconfig hci0` and the
 attach log to `crash.log`, tagged `[bluetooth]`. It stops `rtk_hciattach`
 first, because the log is only written when the process exits.
 
