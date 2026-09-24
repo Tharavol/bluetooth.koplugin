@@ -177,6 +177,33 @@ end
 local bt_open_paths = {}
 
 -- local Bluetooth = EventListener:extend{
+-- Put "Bluetooth" on the settings tab directly below "Network", rather than
+-- inside it. Plugins normally place themselves with sorting_hint, which can
+-- only append to the end of a menu. KOReader's menu order is a plain table
+-- that require() caches, so naming the item in it, right after "network",
+-- gives it that exact spot. Both the reader's and the file manager's order
+-- need it. If the table isn't there or has no "network", the "setting"
+-- sorting_hint still lands it on the same tab.
+local function placeBesideNetwork(order_module)
+    local ok, order = pcall(require, order_module)
+    if not ok or type(order) ~= "table" or type(order.setting) ~= "table" then
+        return
+    end
+    for _i, id in ipairs(order.setting) do
+        if id == "bluetooth" then
+            return  -- already placed
+        end
+    end
+    for i, id in ipairs(order.setting) do
+        if id == "network" then
+            table.insert(order.setting, i + 1, "bluetooth")
+            return
+        end
+    end
+end
+placeBesideNetwork("ui/elements/reader_menu_order")
+placeBesideNetwork("ui/elements/filemanager_menu_order")
+
 local Bluetooth = InputContainer:extend{
     name = "Bluetooth",
 }
@@ -377,7 +404,9 @@ end
 function Bluetooth:addToMainMenu(menu_items)
     menu_items.bluetooth = {
         text = _("Bluetooth"),
-        sorting_hint = "network",
+        -- Fallback only: placeBesideNetwork() normally puts it in the menu
+        -- order explicitly, and an item the order names ignores its hint.
+        sorting_hint = "setting",
         sub_item_table = {
             {
                 text = _("Toggle Bluetooth"),
