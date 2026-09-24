@@ -519,6 +519,38 @@ function Bluetooth:addToMainMenu(menu_items)
     }
 end
 
+-- Suspend and resume (#29). KOReader broadcasts both to plugins. It kills
+-- Wi-Fi before suspending, because power-managing with the Wi-Fi module
+-- loaded can crash the kernel on Kobos -- and on the Sage, Bluetooth lives on
+-- the same RTL8821CS chip, which KOReader knows nothing about. What actually
+-- happens to the Bluetooth stack across a suspend is not established yet, so
+-- for now these only record the state either side of it, for the overnight
+-- test to read back from crash.log.
+local function btStateSummary()
+    local present = select(2, Bluetooth:findInputDevices())
+    local names = {}
+    for _i, name in ipairs(BT_DEVICE_NAMES) do
+        if present[name] then
+            table.insert(names, name)
+        end
+    end
+    return "bluetooth " .. (Bluetooth:isBluetoothOn() and "on" or "off") ..
+           ", remotes present: " .. (#names > 0 and table.concat(names, ", ") or "none") ..
+           ", open: " .. (#bt_open_paths > 0 and table.concat(bt_open_paths, ", ") or "none")
+end
+
+function Bluetooth:onSuspend()
+    logger.info("Bluetooth: suspending; " .. btStateSummary())
+end
+
+function Bluetooth:onResume()
+    logger.info("Bluetooth: resumed; " .. btStateSummary())
+    -- Timers don't run while asleep, so the reconnect clock may say an attempt
+    -- is recent when it is hours old. Let the watcher's next tick dial the
+    -- remotes straight away if one is missing.
+    bt_last_reconnect = 0
+end
+
 -- Dispatcher edits the button actions in place inside G_reader_settings and
 -- only marks us updated, so write them out when KOReader flushes settings.
 function Bluetooth:onFlushSettings()
