@@ -12,6 +12,13 @@ local Device = require("device")
 local Event = require("ui/event")  -- Add this line
 local Trapper = require("ui/trapper")
 local logger = require("logger")
+local ffi = require("ffi")
+
+-- Not declared by KOReader's own ffi headers. pcall both steps: a conflicting
+-- redeclaration is an error, and so is a libc without the symbol. Without it,
+-- closeInputPath falls back to closing unconditionally, as it always did.
+pcall(ffi.cdef, "ssize_t readlink(const char *path, char *buf, size_t bufsiz);")
+local have_readlink = pcall(function() return ffi.C.readlink end)
 
 -- local BTKeyManager = require("BTKeyManager")
 
@@ -553,10 +560,41 @@ function Bluetooth:waitForInputDevices()
     return ready, listed
 end
 
--- Drop one handle we hold. Not fatal if the close fails, but it means the
--- handle leaked, so log it rather than swallowing it -- it shows up in
--- crash.log if the call is wrong.
+-- What an fd of this process currently refers to, or nil if it is not open.
+local function fdTarget(fd)
+    local buf = ffi.new("char[256]")
+    local ok, n = pcall(function()
+        return tonumber(ffi.C.readlink("/proc/self/fd/" .. tostring(fd), buf, 255))
+    end)
+    if not ok or not n or n < 0 then
+        return nil
+    end
+    return ffi.string(buf, n)
+end
+
+-- Drop one handle we hold.
+--
+-- Only close it if KOReader's fd for this path still refers to this path.
+-- When a device goes away, KOReader's input backend closes its fd by itself
+-- ("[ko-input] Closed input device ... (matched by idx)") but leaves the
+-- path -> fd entry in Input.opened_devices. The fd number is then free for
+-- reuse, and Input:close(path) closes whatever holds that number now -- seen
+-- on the Sage closing the live remote's fd while tidying up after the other
+-- one, which left the reader connected and turning no pages until "Refresh
+-- Device Input". In that case just forget the entry: the fd is already
+-- closed, and clearing it lets the next Input:open of this path through
+-- instead of being skipped as a duplicate.
+--
+-- Not fatal if the close fails, but it means the handle leaked, so log it
+-- rather than swallowing it -- it shows up in crash.log if the call is wrong.
 local function closeInputPath(path)
+    local opened = Device.input.opened_devices
+    local fd = opened and opened[path]
+    if fd and have_readlink and fdTarget(fd) ~= path then
+        logger.info("Bluetooth: " .. path .. " was already closed by KOReader; forgetting it")
+        opened[path] = nil
+        return
+    end
     local closed, close_err = pcall(function() Device.input:close(path) end)
     if not closed then
         logger.warn("Bluetooth: could not close " .. path .. ": " .. tostring(close_err))
