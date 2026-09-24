@@ -126,6 +126,19 @@ local function BACKGROUND()
     return {}
 end
 
+-- Wait `seconds` without stalling the UI. Inside a coroutine (Trapper:wrap),
+-- yield and have UIManager resume us; outside one, all that's left is a
+-- blocking sleep. Every caller today runs wrapped.
+local function pause(seconds)
+    local co = coroutine.running()
+    if not co then
+        os.execute("sleep " .. tonumber(seconds))
+        return
+    end
+    UIManager:scheduleIn(seconds, function() coroutine.resume(co) end)
+    coroutine.yield()
+end
+
 -- Read from device.conf so the names live in one place; the shell scripts
 -- source the same file. Falls back to both known remotes if it's missing.
 --
@@ -607,6 +620,10 @@ function Bluetooth:onBluetoothOff()
 end
 
 function Bluetooth:onRefreshPairing()
+    -- Wrapped so refreshPairing's wait can yield instead of blocking (#33).
+    if not Trapper:isWrapped() then
+        return Trapper:wrap(function() self:onRefreshPairing() end)
+    end
     if not self:isBluetoothOn() then
         self:popup(_("Bluetooth is off. Please turn it on before refreshing pairing."))
         return
@@ -681,11 +698,16 @@ end
 -- Returns the openable paths and the listed ones, so the caller can tell
 -- "remote isn't there" (nothing listed) from "node never appeared" (listed,
 -- none openable).
+--
+-- Waits without blocking the reader: between polls it yields to UIManager, the
+-- way Trapper:dismissablePopen does, so pages still turn and taps still land.
+-- os.execute("sleep 1") used to stall the whole process for up to five seconds
+-- right after a successful connect (#33).
 function Bluetooth:waitForInputDevices()
     local ready, listed = {}, {}
     for i = 0, BT_INPUT_WAIT do
         if i > 0 then
-            os.execute("sleep 1")
+            pause(1)
         end
         listed, ready = self:findInputDevices(), {}
         for _i, path in ipairs(listed) do
