@@ -82,6 +82,18 @@ local BT_RECONNECT_INTERVAL = 60
 -- bluetoothctl calls are capped at 5 s each, well inside the interval.
 local bt_last_reconnect = 0
 
+-- Global KOReader setting behind "Turn on Bluetooth at startup". Unset means
+-- on, so a fresh install brings Bluetooth up without a menu tap.
+local BT_AUTOSTART_SETTING = "bluetooth_autostart"
+
+-- Seconds after startup before bringing Bluetooth up, so on.sh's rfkill cycle
+-- and daemon restarts don't compete with KOReader opening the last book.
+local BT_AUTOSTART_DELAY = 3
+
+-- Once per process, for the same reason as bt_watch_scheduled: init() runs for
+-- FileManager and again for ReaderUI.
+local bt_autostart_done = false
+
 -- Read from device.conf so the names live in one place; the shell scripts
 -- source the same file. Falls back to both known remotes if it's missing.
 --
@@ -290,6 +302,43 @@ function Bluetooth:init()
     -- restart with Bluetooth already on, instead of waiting for a toggle.
     -- Guarded, so the second instance doesn't add a second timer.
     self:scheduleWatch()
+
+    if not bt_autostart_done then
+        bt_autostart_done = true
+        -- Skipped when Bluetooth is already up, e.g. after a KOReader restart:
+        -- on.sh always tears the stack down first, which would drop a remote
+        -- that is working.
+        if G_reader_settings:nilOrTrue(BT_AUTOSTART_SETTING) and not self:isBluetoothOn() then
+            UIManager:scheduleIn(BT_AUTOSTART_DELAY, function() Bluetooth:autoStart() end)
+        end
+    end
+end
+
+-- Bring Bluetooth up at startup without putting anything on screen.
+--
+-- Runs on.sh only, behind an invisible trap widget like the unattended
+-- reconnect, and logs rather than pops up: a startup popup every time the
+-- remotes happen to be off would be worse than none. Connecting is left to
+-- the watcher -- clearing the reconnect timestamp makes its next tick run
+-- connect.sh --no-repair straight away, trying the remotes in order. A remote
+-- whose bond is gone still needs RePair from the menu, as with any unattended
+-- attempt.
+--
+-- Not gated on Wi-Fi like the Toggle menu entry: whether Bluetooth really
+-- needs it is unresolved (#42). If on.sh fails, the log says so.
+function Bluetooth:autoStart()
+    Trapper:wrap(function()
+        local completed, result = self:executeScript("on.sh", true)
+        if not completed then
+            logger.info("Bluetooth: startup was interrupted; on.sh may still finish")
+        elseif result and result:match("complete") then
+            logger.info("Bluetooth: turned on at startup")
+            bt_last_reconnect = 0
+        else
+            logger.info("Bluetooth: could not turn on at startup: " ..
+                        tostring(result):gsub("%s+", " "):sub(1, 120))
+        end
+    end)
 end
 
 function Bluetooth:addToMainMenu(menu_items)
@@ -363,6 +412,16 @@ function Bluetooth:addToMainMenu(menu_items)
                 end,
                 callback = function()
                     G_reader_settings:flipNilOrFalse(BT_INVERT_SETTING)
+                end,
+            },
+            {
+                text = _("Turn on Bluetooth at startup"),
+                keep_menu_open = true,
+                checked_func = function()
+                    return G_reader_settings:nilOrTrue(BT_AUTOSTART_SETTING)
+                end,
+                callback = function()
+                    G_reader_settings:flipNilOrTrue(BT_AUTOSTART_SETTING)
                 end,
             },
             {
