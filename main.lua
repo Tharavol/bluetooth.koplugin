@@ -75,6 +75,16 @@ local bt_watch_scheduled = false
 -- and can only succeed if the remote happens to be advertising right then.
 local BT_RECONNECT_INTERVAL = 60
 
+-- Seconds between background restarts of the whole stack when the controller
+-- is found dead. A restart takes the radio down for several seconds, so this
+-- is deliberately slow: it is a recovery, not a retry loop.
+local BT_RESTART_INTERVAL = 300
+local bt_last_restart = 0
+
+-- Set when onSuspend switched Bluetooth off, so onResume knows to bring it
+-- back -- and only then.
+local bt_off_for_suspend = false
+
 -- When the last unattended attempt started. A timestamp rather than an
 -- in-progress flag on purpose: a flag left true by an error would disable
 -- reconnection for the rest of the session, while a stale timestamp costs at
@@ -399,16 +409,23 @@ end
 -- Not gated on Wi-Fi like the Toggle menu entry: whether Bluetooth really
 -- needs it is unresolved (#42). If on.sh fails, the log says so.
 function Bluetooth:autoStart()
+    self:startInBackground("at startup")
+end
+
+-- Run on.sh in the background and log the outcome; the watcher connects
+-- afterwards. Shared by startup, resume and the dead-controller recovery.
+-- `why` finishes the log lines: "turned on at startup", "... on resume".
+function Bluetooth:startInBackground(why)
     Trapper:wrap(function()
         startingBluetooth()
         local completed, result = self:executeScript("on.sh", BACKGROUND())
         startedBluetooth()
         if not completed then
-            logger.info("Bluetooth: startup was interrupted; on.sh may still finish")
+            logger.info("Bluetooth: start " .. why .. " was interrupted; on.sh may still finish")
         elseif result and result:match("complete") then
-            logger.info("Bluetooth: turned on at startup")
+            logger.info("Bluetooth: turned on " .. why)
         else
-            logger.info("Bluetooth: could not turn on at startup: " ..
+            logger.info("Bluetooth: could not turn on " .. why .. ": " ..
                         tostring(result):gsub("%s+", " "):sub(1, 120))
         end
     end)
@@ -526,13 +543,14 @@ function Bluetooth:addToMainMenu(menu_items)
     }
 end
 
--- Suspend and resume (#29). KOReader broadcasts both to plugins. It kills
+-- Suspend and resume (#29). KOReader broadcasts both to plugins, and kills
 -- Wi-Fi before suspending, because power-managing with the Wi-Fi module
--- loaded can crash the kernel on Kobos -- and on the Sage, Bluetooth lives on
--- the same RTL8821CS chip, which KOReader knows nothing about. What actually
--- happens to the Bluetooth stack across a suspend is not established yet, so
--- for now these only record the state either side of it, for the overnight
--- test to read back from crash.log.
+-- loaded can crash the kernel on Kobos. On the Sage, Bluetooth lives on the
+-- same RTL8821CS chip, which KOReader knows nothing about -- and left running
+-- across a suspend, the serial link to it died: hci0 DOWN, "retransmitting"
+-- in dmesg, every bluetoothctl call failing with org.bluez.Error.Busy, and no
+-- remote until a manual toggle. So Bluetooth goes off with the Kobo and comes
+-- back in the background when it wakes, the way KOReader treats Wi-Fi.
 local function btStateSummary()
     local present = select(2, Bluetooth:findInputDevices())
     local names = {}
@@ -548,6 +566,16 @@ end
 
 function Bluetooth:onSuspend()
     logger.info("Bluetooth: suspending; " .. btStateSummary())
+    if not self:isBluetoothOn() then
+        return
+    end
+    bt_off_for_suspend = true
+    self:closeInputDevices()
+    -- Synchronously: the Kobo suspends as soon as the Suspend handlers
+    -- return, so a background run would still be going when it does. off.sh
+    -- only kills two daemons and blocks the radio; it takes about a second.
+    os.execute("/bin/sh " .. PLUGIN_DIR .. "off.sh >/dev/null 2>&1")
+    logger.info("Bluetooth: turned off for suspend")
 end
 
 function Bluetooth:onResume()
@@ -556,6 +584,11 @@ function Bluetooth:onResume()
     -- is recent when it is hours old. Let the watcher's next tick dial the
     -- remotes straight away if one is missing.
     bt_last_reconnect = 0
+    if bt_off_for_suspend then
+        bt_off_for_suspend = false
+        -- A moment's grace for the rest of the resume to settle first.
+        UIManager:scheduleIn(1, function() Bluetooth:startInBackground("on resume") end)
+    end
 end
 
 -- Dispatcher edits the button actions in place inside G_reader_settings and
@@ -902,6 +935,16 @@ function Bluetooth:tryReconnect(names, quiet)
             logger.info("Bluetooth: reconnected the remote unattended" ..
                         (result:match("Remote: ([^\n]+)") and
                          " (" .. result:match("Remote: ([^\n]+)") .. ")" or ""))
+        elseif result:match("controller is not responding") then
+            -- The link to the chip is dead; only a full restart recovers it.
+            local now_restart = os.time()
+            if now_restart - bt_last_restart >= BT_RESTART_INTERVAL then
+                bt_last_restart = now_restart
+                logger.info("Bluetooth: the controller is not responding; restarting Bluetooth")
+                self:startInBackground("after the controller stopped responding")
+            else
+                logger.dbg("Bluetooth: the controller is not responding; restarted recently, waiting")
+            end
         elseif result:match("without a valid bond") then
             logger.info("Bluetooth: the remote is back but its bond is gone; needs a re-pair")
         else

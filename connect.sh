@@ -18,6 +18,17 @@ names=${1:-$BT_DEVICE_NAMES}
 
 bltctl power on 2>&1 | diag
 
+# A controller whose serial link to the host has died stays listed but DOWN,
+# and every bluetoothctl call against it fails ("Failed to set power on:
+# org.bluez.Error.Busy", "retransmitting" in dmesg). Seen on the Sage after a
+# suspend. Nothing here can fix that -- only a full on.sh -- so say so in a
+# form main.lua recognises, rather than trying every remote in vain.
+if ! hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"; then
+    hciconfig hci0 2>&1 | diag
+    echo "The Bluetooth controller is not responding. Toggle Bluetooth off and on."
+    exit 1
+fi
+
 # Split the list on "|" into the positional parameters. Names contain spaces,
 # so IFS can't be left at its default for this; globbing is off in case one
 # ever contains a * or ?.
