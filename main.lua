@@ -34,8 +34,13 @@ local bt_hook_registered = false
 -- Press tracking; see BT_PAIR_GAP. Keyed by MSC_SCAN value.
 local bt_pending = {}        -- true while a press's second code is due
 local bt_last_code = {}      -- when that value's last code arrived
-local bt_last_bare_syn = 0   -- when the last empty report arrived
-local bt_prev_ev_type = nil  -- type of the event before the current one
+
+-- Forget any half-seen press. Called whenever a remote's input device opens
+-- or closes: a dropped link is exactly when a second code can go missing, and
+-- a stale half-pair would otherwise make the next press act on release.
+local function resetPresses()
+    bt_pending = {}
+end
 
 -- MSC_SCAN values: HID usages, page in the high 16 bits. evtest prints them in
 -- hex. Keyboard Down/Up Arrow are what the official Kobo Remote sends, and what
@@ -53,18 +58,21 @@ local BT_SCAN_THIRD = 0x7002c    -- Keyboard Spacebar
 --   Kobo Remote  one at press, one at release, 4-200 ms later for a tap. While
 --                held it sends empty reports (a bare SYN) every ~37 ms, and
 --                the second code only on release, however long that takes.
--- So a press acts on its first code and swallows its second. No single time
--- window can do that: the Kobo Remote's release can come 200 ms after its
--- press, a Free3 re-tap 140 ms after the last. The old 0.5 s window lost the
--- second page of a Free3 double-tap, and turned two pages for a Kobo Remote
--- press held longer than half a second.
+-- So a press acts on its first code and swallows its second -- however long
+-- the second takes, since a held Kobo Remote button sends it only on release.
+-- No time window can do this: the Kobo Remote's release can come seconds
+-- after its press, a Free3 re-tap 140 ms after the last. The old 0.5 s window
+-- lost the second page of a Free3 double-tap, and turned two pages for a Kobo
+-- Remote press held longer than half a second.
 --
--- The empty reports of a held Kobo Remote button count as activity, so the
--- pair stays open for as long as it is held. With nothing at all for this
--- long, the pair is abandoned and the next code counts as a new press. That
--- way a lost code costs one press, rather than leaving every later press
--- acting on release.
-local BT_PAIR_GAP = 0.5
+-- The held button's empty reports are no help: evtest shows them, but they
+-- never reach KOReader's event hook ("last empty report never" in the log).
+--
+-- Getting out of step would make every later press act on release, so the
+-- pairing resets whenever a remote's input device opens or closes (a dropped
+-- link), and a pair left open this long is abandoned as a backstop. Nobody
+-- holds a page-turn button for half a minute.
+local BT_PAIR_GAP = 30
 
 -- Global KOReader setting behind "Invert page-turn buttons". Read on every
 -- press rather than cached, so the menu toggle takes effect immediately.
@@ -370,37 +378,22 @@ function Bluetooth:init()
     if not bt_hook_registered then
         bt_hook_registered = true
         Device.input:registerEventAdjustHook(function(_, ev)
-            local prev_type = bt_prev_ev_type
-            bt_prev_ev_type = ev.type
-            local now = ev.time.sec + ev.time.usec / 1000000
-            if ev.type == 0 then  -- EV_SYN
-                -- A report with nothing in it: a SYN_REPORT straight after
-                -- another SYN. A held Kobo Remote button sends these; a
-                -- touch or key report always has events before its SYN.
-                if ev.code == 0 and prev_type == 0 then
-                    bt_last_bare_syn = now
-                end
-                return
-            end
             if ev.type == 4 and ev.code == 4 then  -- EV_MSC, MSC_SCAN
+                local now = ev.time.sec + ev.time.usec / 1000000
                 local value = ev.value
                 if value ~= BT_SCAN_FORWARD and value ~= BT_SCAN_BACK and value ~= BT_SCAN_THIRD then
                     return
                 end
-                local last = math.max(bt_last_code[value] or 0, bt_last_bare_syn)
                 if bt_pending[value] then
-                    if now - last < BT_PAIR_GAP then
+                    if now - (bt_last_code[value] or 0) < BT_PAIR_GAP then
                         bt_pending[value] = false
                         bt_last_code[value] = now
                         return  -- the press's second code
                     end
-                    -- A pair left open this long means the second code went
-                    -- missing, or a held button's empty reports did. Log the
-                    -- timing, so a wrong page turn can be traced from crash.log.
-                    logger.info(string.format("Bluetooth: press of 0x%x abandoned its pair: " ..
-                        "%.2f s since its first code, last empty report %s",
-                        value, now - (bt_last_code[value] or 0),
-                        bt_last_bare_syn > 0 and string.format("%.2f s ago", now - bt_last_bare_syn) or "never"))
+                    -- A second code this late means one went missing. Log it,
+                    -- so a wrong page turn can be traced from crash.log.
+                    logger.info(string.format("Bluetooth: press of 0x%x abandoned its pair after %.1f s",
+                        value, now - (bt_last_code[value] or 0)))
                 end
                 bt_last_code[value] = now
                 bt_pending[value] = true
@@ -872,6 +865,7 @@ end
 -- Not fatal if the close fails, but it means the handle leaked, so log it
 -- rather than swallowing it -- it shows up in crash.log if the call is wrong.
 local function closeInputPath(path)
+    resetPresses()
     local opened = Device.input.opened_devices
     local fd = opened and opened[path]
     if fd and have_readlink and fdTarget(fd) ~= path then
@@ -897,6 +891,7 @@ end
 -- the error rather than reporting it, so the caller decides whether it deserves
 -- a popup: the menu paths want one, the watcher has to stay silent.
 function Bluetooth:openInputDevice(path)
+    resetPresses()
     local ok, err = pcall(function()
         Device.input:open(path)
     end)

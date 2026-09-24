@@ -309,12 +309,14 @@ end
 
 **Press pairing (#31).** Both remotes send each press's code exactly twice:
 the Free3 both at press, 18–40 ms apart; the Kobo Remote at press and at
-release. So a press acts on its first code and swallows its second
-(`bt_pending`). The Kobo Remote's empty reports while a button is held (bare
-`SYN_REPORT`s, which the hook sees too) count as activity, keeping the pair
-open however long the button is held. With no activity for `BT_PAIR_GAP`
-(0.5 s), the pair is abandoned, so a lost code costs one press rather than
-leaving every later press acting on release.
+release, however long it is held. So a press acts on its first code and
+swallows its second (`bt_pending`), with no time limit short of a 30 s
+backstop (`BT_PAIR_GAP`). The Kobo Remote's empty reports while held would
+have been the natural signal, but **they never reach KOReader's hook**:
+`evtest` shows them, and the hook logged `last empty report never`. Getting
+out of step would make every later press act on release, so the pairing
+resets whenever a remote's input device opens or closes — a dropped link is
+when a code can go missing.
 
 This replaced a 0.5 s per-value time window. No single window can separate the
 two remotes: the Kobo Remote's release can come 200 ms after its press, and a
