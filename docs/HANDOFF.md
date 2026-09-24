@@ -168,6 +168,12 @@ Four non-obvious requirements are encoded here:
 Trade-off: this always tears down, so a "Bluetooth On" toggle drops any
 existing pairing/connection and takes a few seconds.
 
+The shipped script wraps the kill → rfkill → attach → `hciconfig hci0 up`
+sequence in `bring_up` and, if `hci0` is not `UP RUNNING` afterwards, runs it
+**once more** before starting `bluetoothd` (#49). Each failed attempt copies
+`/var/log/rtk_hciattach.log` into `crash.log`, tagged `[bluetooth]`, since the
+tmpfs copy is overwritten by the next attempt.
+
 ### 3.3 `off.sh`
 
 ```sh
@@ -528,9 +534,9 @@ apart from the failure itself. Check `df -h /` first.
    never been exercised across a real overnight idle or a wake from sleep.
    Most likely remaining gap.
 3. **`hci0` sometimes stays down after `on.sh`.** Seen once at startup
-   (`hci0 did not come up`), with the next start fine. With Bluetooth starting
-   silently, that means no remote until a manual toggle. A single retry of the
-   rfkill cycle inside `on.sh` is the obvious candidate; not done yet.
+   (`hci0 did not come up`), with the next start fine. `on.sh` now retries the
+   whole bring-up once (#49); whether that recovers it has not been observed
+   yet. If it recurs, `crash.log` has the attach log from each attempt.
 4. **`bt_open_paths` is per-process**, so it is empty after a KOReader restart.
    Believed harmless — nothing is open at that point either — but it means the
    close only covers handles opened in the current session. It is also a useful
