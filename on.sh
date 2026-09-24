@@ -5,9 +5,10 @@
 # uses a relative path.
 cd / || exit 1
 
-# Power-cycle the chip and attach it. hci0 regularly ends up attached-but-DOWN,
-# at which point "hciconfig hci0 up" fails; only a full rfkill 0->1 cycle and
-# a fresh rtk_hciattach recover it, so this does both every time.
+# Power-cycle the chip, attach it and start bluetoothd. hci0 regularly ends up
+# attached-but-DOWN, at which point "hciconfig hci0 up" fails; only a full
+# rfkill 0->1 cycle and a fresh rtk_hciattach recover it, so this does both
+# every time.
 bring_up() {
     killall rtk_hciattach 2>/dev/null
     killall bluetoothd 2>/dev/null
@@ -20,17 +21,32 @@ bring_up() {
     /sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 > /var/log/rtk_hciattach.log 2>&1 &
     sleep 2
     hciconfig hci0 up 2>/dev/null
+
+    # No -d: /var/log is a 16 KB tmpfs, debug output wraps it within seconds,
+    # and the logging costs wakeups on a battery device for a log nobody can
+    # read. HANDOFF section 8 has the command for a debug daemon logging
+    # somewhere with room.
+    setsid /libexec/bluetooth/bluetoothd -n > /var/log/bluetoothd.log 2>&1 &
+    sleep 2
 }
 
+# Checked only once bluetoothd is running: it is what powers the controller,
+# and hci0 is routinely not yet UP before it starts -- checking there made
+# every start retry (#49).
 hci0_up() {
     hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"
 }
 
-# The attach log goes to stderr, which KOReader leaves pointing at crash.log:
-# /var/log is a small tmpfs, and by the time anyone reads it the next attempt
-# has overwritten it.
+# Record why an attempt failed, on stderr, which KOReader leaves pointing at
+# crash.log. rtk_hciattach buffers its output and writes it only when it exits
+# -- the log is empty while it runs -- so stop it first. Every caller is about
+# to retry or give up, so nothing is lost by it.
 log_attach() {
-    echo "[bluetooth] $1; rtk_hciattach.log follows" >&2
+    echo "[bluetooth] $1" >&2
+    hciconfig hci0 2>&1 | sed 's/^/[bluetooth]   /' >&2
+    killall rtk_hciattach 2>/dev/null
+    sleep 1
+    echo "[bluetooth] rtk_hciattach.log follows" >&2
     sed 's/^/[bluetooth]   /' /var/log/rtk_hciattach.log >&2 2>/dev/null
 }
 
@@ -44,15 +60,9 @@ if ! hci0_up; then
     bring_up
 fi
 
-# No -d: /var/log is a 16 KB tmpfs, debug output wraps it within seconds, and
-# the logging costs wakeups on a battery device for a log nobody can read.
-# HANDOFF section 8 has the command for a debug daemon logging somewhere with room.
-setsid /libexec/bluetooth/bluetoothd -n > /var/log/bluetoothd.log 2>&1 &
-sleep 2
-
-# Only report success if the controller actually came up. hci0 regularly ends
-# up attached-but-DOWN, and echoing "complete" regardless sends the plugin
-# straight into pairing against a controller that isn't there.
+# Only report success if the controller actually came up. Echoing "complete"
+# regardless sends the plugin straight into connecting against a controller
+# that isn't there.
 if ! hci0_up; then
     log_attach "hci0 did not come up after a retry"
     echo "Error: hci0 did not come up - see crash.log"

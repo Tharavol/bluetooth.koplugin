@@ -25,9 +25,10 @@ else
 fi
 
 # The chip model. The Sage's RTL8821CS is a Wi-Fi/Bluetooth combo, and its
-# Wi-Fi driver module is named after it (8821cs). rtk_hciattach's own log is
-# empty on the Sage, so this is the only place the model shows up -- and only
-# while Wi-Fi is on, since KOReader unloads the module with it.
+# Wi-Fi driver module is named after it (8821cs). rtk_hciattach does log
+# "IC: RTL8821CS", but buffers its output until it exits, so the log is empty
+# while Bluetooth is on. The driver name is available then -- but only while
+# Wi-Fi is on, since KOReader unloads the module with it.
 driver=$(awk '$1 ~ /^(8[0-9][0-9][0-9][a-z]*|rtl[0-9a-z]*)$/ { print $1; exit }' /proc/modules 2>/dev/null)
 if [ -n "$driver" ]; then
     chip=$(echo "${driver#rtl}" | tr '[:lower:]' '[:upper:]')

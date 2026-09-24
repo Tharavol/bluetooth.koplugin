@@ -17,7 +17,7 @@ itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetoo
 
 | Fact | How confirmed |
 |---|---|
-| BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; the Wi-Fi module is `8821cs`; `hciconfig hci0 version` reports `Manufacturer: Realtek Semiconductor Corporation (93)`, HCI/LMP 4.1, bus UART. (An earlier note said `rtk_hciattach`'s log prints `IC: RTL8821CS`; `/var/log/rtk_hciattach.log` from the plugin's own `-n` start is empty on the Sage, 2026-09-24.) |
+| BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; the Wi-Fi module is `8821cs`; `hciconfig hci0 version` reports `Manufacturer: Realtek Semiconductor Corporation (93)`, HCI/LMP 4.1, bus UART. `rtk_hciattach`'s log prints `IC: RTL8821CS` — but only once it exits: it buffers its output, so `/var/log/rtk_hciattach.log` is **empty while it runs** |
 | BT is UART-attached on `/dev/ttyS1`, H5 (three-wire) protocol | Nickel runs `/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5` |
 | WiFi driver module is `8821cs` | `/sys/module/8821cs/parameters/rtw_btcoex_enable` exists |
 | Chip reset line exists in devicetree as node `bt` | `/sys/firmware/devicetree/base/bt/bt_rst_n` |
@@ -168,11 +168,14 @@ Four non-obvious requirements are encoded here:
 Trade-off: this always tears down, so a "Bluetooth On" toggle drops any
 existing pairing/connection and takes a few seconds.
 
-The shipped script wraps the kill → rfkill → attach → `hciconfig hci0 up`
-sequence in `bring_up` and, if `hci0` is not `UP RUNNING` afterwards, runs it
-**once more** before starting `bluetoothd` (#49). Each failed attempt copies
-`/var/log/rtk_hciattach.log` into `crash.log`, tagged `[bluetooth]`, since the
-tmpfs copy is overwritten by the next attempt.
+The shipped script wraps the whole kill → rfkill → attach →
+`hciconfig hci0 up` → `bluetoothd` sequence in `bring_up`. If `hci0` is not
+`UP RUNNING` afterwards, it runs it **once more** (#49). The check has to come
+after `bluetoothd`: that is what powers the controller, and `hci0` is
+routinely not yet UP before it starts. A check placed before `bluetoothd`
+made every start retry. Each failed attempt writes `hciconfig hci0` and the
+attach log to `crash.log`, tagged `[bluetooth]`. It stops `rtk_hciattach`
+first, because the log is only written when the process exits.
 
 ### 3.3 `off.sh`
 
