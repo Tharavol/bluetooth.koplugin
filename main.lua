@@ -94,6 +94,38 @@ local BT_AUTOSTART_DELAY = 3
 -- FileManager and again for ReaderUI.
 local bt_autostart_done = false
 
+-- While on.sh is running, the watcher stands aside. hci0 appears partway
+-- through it, so isBluetoothOn() turns true while bluetoothd is still being
+-- restarted, and a reconnect started then races the teardown -- seen on the
+-- Sage as a connect.sh running alongside on.sh at startup. A deadline rather
+-- than a flag, so a start that never reports back (a dismissed "Starting
+-- Bluetooth" message) can't hold the watcher off for good.
+local BT_START_GRACE = 20
+local bt_starting_until = 0
+
+local function startingBluetooth()
+    bt_starting_until = os.time() + BT_START_GRACE
+end
+
+local function startedBluetooth()
+    bt_starting_until = 0
+    -- Let the watcher's next tick try the remotes straight away.
+    bt_last_reconnect = 0
+end
+
+-- The "widget" for a run nobody should see or be able to cancel. Trapper
+-- takes a table as an already-shown widget: it attaches its dismiss_callback
+-- and, since it didn't create it, never shows or closes it. This one is never
+-- shown, so nothing can dismiss it and every tap goes to the reader as normal.
+--
+-- Trapper's own invisible widget (passing `true`) is dismissed by any tap, and
+-- on the Sage it was: "unattended reconnect was interrupted" and "startup was
+-- interrupted" logged together at startup, with both scripts left running
+-- unsupervised (#30). A fresh table per run, since Trapper writes into it.
+local function BACKGROUND()
+    return {}
+end
+
 -- Read from device.conf so the names live in one place; the shell scripts
 -- source the same file. Falls back to both known remotes if it's missing.
 --
@@ -316,11 +348,11 @@ end
 
 -- Bring Bluetooth up at startup without putting anything on screen.
 --
--- Runs on.sh only, behind an invisible trap widget like the unattended
--- reconnect, and logs rather than pops up: a startup popup every time the
--- remotes happen to be off would be worse than none. Connecting is left to
--- the watcher -- clearing the reconnect timestamp makes its next tick run
--- connect.sh --no-repair straight away, trying the remotes in order. A remote
+-- Runs on.sh only, in the background like the unattended reconnect, and logs
+-- rather than pops up: a startup popup every time the remotes happen to be off
+-- would be worse than none. Connecting is left to the watcher, which stands
+-- aside until on.sh is done and then runs connect.sh --no-repair straight
+-- away, trying the remotes in order. A remote
 -- whose bond is gone still needs RePair from the menu, as with any unattended
 -- attempt.
 --
@@ -328,12 +360,13 @@ end
 -- needs it is unresolved (#42). If on.sh fails, the log says so.
 function Bluetooth:autoStart()
     Trapper:wrap(function()
-        local completed, result = self:executeScript("on.sh", true)
+        startingBluetooth()
+        local completed, result = self:executeScript("on.sh", BACKGROUND())
+        startedBluetooth()
         if not completed then
             logger.info("Bluetooth: startup was interrupted; on.sh may still finish")
         elseif result and result:match("complete") then
             logger.info("Bluetooth: turned on at startup")
-            bt_last_reconnect = 0
         else
             logger.info("Bluetooth: could not turn on at startup: " ..
                         tostring(result):gsub("%s+", " "):sub(1, 120))
@@ -470,8 +503,8 @@ end
 --
 -- `script` may carry arguments; it is appended to the interpreter and plugin
 -- directory as-is. `message` is what Trapper shows while it works -- a string
--- gets a dismissable widget, and `true` an invisible one that still lets a tap
--- through, which is what the unattended reconnect wants.
+-- gets a dismissable widget. Background runs pass BACKGROUND() instead: see
+-- there.
 --
 -- Needs to run inside Trapper:wrap(); outside one, Trapper logs a warning and
 -- falls back to a blocking io.popen, which is exactly today's behaviour.
@@ -497,7 +530,11 @@ function Bluetooth:onBluetoothOn()
     end
 
     local script = self:getScriptPath("on.sh")
+    startingBluetooth()
     local completed, result = self:executeScript(script, _("Starting Bluetooth…"))
+    if completed then
+        startedBluetooth()
+    end
 
     if not completed then
         logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
@@ -728,12 +765,10 @@ function Bluetooth:tryReconnect()
     bt_last_reconnect = now
 
     -- The tick is a plain timer callback rather than a coroutine, so this needs
-    -- its own wrap. Passing `true` asks Trapper for an invisible widget that
-    -- still lets a tap through: a background attempt must not put anything on
-    -- screen, and if the reader is touched mid-attempt that tap cancels us and
-    -- is then delivered normally. The next interval tries again regardless.
+    -- its own wrap. It runs in the BACKGROUND: nothing on screen, and nothing a
+    -- tap on the reader can cancel.
     Trapper:wrap(function()
-        local completed, result = self:executeScript("connect.sh --no-repair", true)
+        local completed, result = self:executeScript("connect.sh --no-repair", BACKGROUND())
 
         -- Every outcome gets a line. Logging only the two recognised ones left
         -- silence meaning both "never ran" and "ran and said something else",
@@ -757,6 +792,12 @@ end
 
 local function btWatchTick()
     bt_watch_scheduled = false
+
+    if os.time() < bt_starting_until then
+        -- on.sh is still bringing the stack up; see startingBluetooth().
+        Bluetooth:scheduleWatch()
+        return
+    end
 
     if Bluetooth:isBluetoothOn() then
         local paths = Bluetooth:findInputDevices()
