@@ -6,6 +6,83 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.4.0 — 2026-09-24 — Hanlinyue Free3 support
+
+A second remote: the Hanlinyue Free3 in P mode works alongside the official
+Kobo Remote. Either one turns pages, and the Free3 is preferred when both are
+around. Bluetooth now comes up by itself when KOReader starts and connects in
+the background. Its menu moves up beside Network and gains options to invert
+the buttons, to assign the Free3's third button, and to turn startup off. All
+confirmed on the Sage (KOReader v2026.03).
+
+**Upgrading:** copy the whole folder. `device.conf` now lists remotes as
+`BT_DEVICE_NAMES="Free3-P|Kobo Remote"`. An old one naming a single
+`BT_DEVICE_NAME` still works. Pair the Free3 once with **RePair → Free3-P**.
+
+### Added
+
+- **Hanlinyue Free3 support.** Set the switch to P and the mode to Up and
+  Down. It then sends exactly the Kobo Remote's codes, so the top key turns
+  back and the middle key forward. It is classic Bluetooth, keeps its bond
+  through power-offs, and needs no re-pair after being switched off. (#45)
+- **Both remotes at once.** `device.conf` lists remotes in order of
+  preference, and every listed remote that is connected turns pages. *Reconnect
+  to Device* and the background reconnect try them in order. While a remote
+  earlier in the list is missing, it is dialled about once a minute even if a
+  later one is connected — so switching the Free3 on takes over from the Kobo
+  Remote without a menu tap. (#45)
+- **RePair is a submenu** with one entry per remote, since a re-pair removes
+  that remote's bond first. Success messages name the remote.
+- **Bluetooth at startup**, on by default. *Turn on Bluetooth at startup* runs
+  `on.sh` quietly a few seconds after KOReader starts, unless Bluetooth is
+  already up, and the watcher then connects the first remote that answers. It
+  never re-pairs by itself.
+- **Invert page-turn buttons**, for any remote. Takes effect immediately.
+- **Third button (Free3)** opens KOReader's own action picker, the one
+  gestures use. The chosen actions run when the Free3's bottom key is pressed.
+
+### Changed
+
+- **The Bluetooth menu sits on the settings tab directly below Network**,
+  instead of inside it.
+- **Toggle Bluetooth connects instead of re-pairing.** It used to remove and
+  rebuild the bond every time; a remote whose bond is really gone is still
+  handed to a re-pair.
+- **Messages are short.** The scripts print only outcomes. `bluetoothctl`'s own
+  output goes to `crash.log`, tagged `[bluetooth]`. A failed re-pair used to
+  fill the screen with scan results for every device in range. It now shows
+  the first error and the bond state.
+
+### Fixed
+
+- **A late close could shut the other remote.** When a remote's input device
+  vanished, KOReader closed its fd itself but kept the path → fd entry. The
+  plugin's own close then hit whatever held that fd number by then, which on
+  the Sage was the other remote: connected, and turning no pages until
+  *Refresh Device Input*. The plugin now closes an fd only while it still
+  refers to that device. (#48)
+- **Background runs were cancelled by taps.** The unattended reconnect, and
+  now the startup run, sat behind Trapper's invisible trap widget, which any
+  tap dismisses. At startup both were cancelled together, and their scripts
+  ran on unsupervised. They now cannot be dismissed, and taps go to the reader.
+  This was the "one unexplained silent reconnect failure". (#30)
+- **The watcher raced `on.sh`.** `hci0` appears partway through bringing the
+  stack up, so the watcher started a reconnect while `bluetoothd` was still
+  being restarted. It now waits for `on.sh`.
+- **`device.conf` was read differently by `main.lua` and the scripts.** With an
+  old name kept as a comment, the scripts paired one remote while `main.lua`
+  opened the other. Both now skip comments and take the last assignment.
+
+### Documented
+
+- HANDOFF records the Free3's behaviour, confirmed on the device: its three
+  names, classic HID, one input device, codes per mode, no auto-repeat, and no
+  self-reconnect.
+- HANDOFF also covers the Trapper and input-backend mechanisms behind #47, #48
+  and #30. It corrects an old claim that `evtest` and KOReader report
+  different scancodes: `70051` and `458833` are the same value in hex and
+  decimal.
+
 ## v1.3.0 — 2026-09-23 — Scripts you can trust, USB share unblocked
 
 The remote turns pages again after a fresh pairing, USB share works with

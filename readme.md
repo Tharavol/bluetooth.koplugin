@@ -1,11 +1,11 @@
 # Bluetooth Page Turner Support for the Kobo Sage
 
-A KOReader plugin that brings up Bluetooth on a **Kobo Sage** and pairs the
-**official Kobo Remote** so its two buttons turn pages.
+A KOReader plugin that brings up Bluetooth on a **Kobo Sage** and connects a
+page-turner remote: the **official Kobo Remote** or a **Hanlinyue Free3**.
 
-This is working on my own Sage: one tap of *Toggle Bluetooth* powers the radio,
-pairs, connects, and opens the input device, and the remote turns pages from
-there.
+This is working on my own Sage. Bluetooth comes up by itself when KOReader
+starts, the preferred remote is connected in the background, and it turns pages
+from there. Both remotes can be paired, and either one works.
 
 ## Lineage
 
@@ -44,8 +44,9 @@ Three things, each of which is on its own load-bearing:
    Instead `main.lua` registers an event-adjust hook, recognises the remote's
    scancodes, and dispatches `GotoViewRel` directly.
 
-3. **Device name.** `connect.sh` and `repair.sh` match `Kobo Remote` rather than
-   CarloDePieri's `Q36`.
+3. **Remotes by name.** `device.conf` lists the remotes in order of preference
+   (`Free3-P` and `Kobo Remote`) rather than CarloDePieri's `Q36`, and
+   everything matches those names exactly.
 
 Plus two fixes: `Device.input:open(...)` was being called with a dot, which
 crashed on every *Refresh Device Input*; and the event-adjust hook is now
@@ -61,6 +62,8 @@ every button press turned two pages.
 | Bluetooth/WiFi chip | Realtek RTL8821CS, UART on `/dev/ttyS1`, H5 |
 | BlueZ | 5.63, `bluetoothd` at `/libexec/bluetooth/bluetoothd` |
 | Remote | Official Kobo Remote — BLE HID-over-GATT (UUID `00001812-…`) |
+| Remote | Hanlinyue Free3 in P mode — classic Bluetooth HID (UUID `00001124-…`) |
+| KOReader | v2026.03 |
 | `uhid` | Built into the kernel (`CONFIG_UHID=y`), no module needed |
 
 Nothing here is likely to work unmodified on another model. Other Realtek Kobos
@@ -90,23 +93,68 @@ Root is required; the scripts write to `/sys` and start daemons.
 
 ## Using it
 
-Everything lives under **Bluetooth** in the network menu:
+By default there is nothing to do. **Bluetooth turns on by itself** a few
+seconds after KOReader starts, and the plugin connects whichever paired remote
+answers, trying them in `device.conf` order. It then watches for a remote
+dropping out and dials it again in the background, about once a minute. It
+never re-pairs on its own.
 
-- **Toggle Bluetooth** — runs `on.sh`, then automatically runs the full
-  re-pair/connect and opens the input device. This is the one you want. It takes
-  several seconds and always tears the stack down first, so it drops any
-  existing connection.
-- **RePair & Reconnect to Device (long!)** — `repair.sh`. Full recovery: remove
-  the bond, rescan, pair, trust, connect. Press a button on the remote while
-  it's scanning so it advertises.
-- **Reconnect to Device** — `connect.sh`. Reconnects to the existing bond, and
-  verifies it afterwards: if the remote came back without re-bonding, it hands
-  over to a full re-pair automatically. Normally quick, occasionally as slow as
-  *RePair* when it has to fall through.
-- **Refresh Device Input** — reopens `/dev/input/eventN` after the remote
-  reconnects on its own.
+The first time, pair each remote once with **RePair** (below).
 
-Wi-Fi has to be on; the plugin refuses to start otherwise.
+Everything else lives under **Bluetooth** on the settings tab, directly below
+**Network**:
+
+- **Toggle Bluetooth** — runs `on.sh`, then connects to the first paired remote
+  that answers. It takes several seconds and always tears the stack down first,
+  so it drops any existing connection. Wi-Fi has to be on for this entry (#42).
+- **Reconnect to Device** — `connect.sh`. Tries each paired remote in order and
+  verifies the bond. A remote whose link came up without a bond is handed over
+  to a re-pair automatically.
+- **RePair & Reconnect to Device (long!)** — a submenu with one entry per
+  remote. `repair.sh` removes that remote's bond, rescans, pairs, trusts and
+  connects. The remote has to be advertising while it scans: see
+  [Remotes](#remotes).
+- **Refresh Device Input** — closes and reopens the remotes' input devices. The
+  watcher does this by itself; this is the manual override.
+- **Invert page-turn buttons** — swaps forward and back, for any remote.
+- **Turn on Bluetooth at startup** — on by default. Untick it to bring Bluetooth
+  up only from the menu.
+- **Third button (Free3): …** — KOReader's own action picker, the one gestures
+  use. Whatever is chosen runs when the Free3's third button is pressed.
+
+Messages are kept short. The full `bluetoothctl` output goes to `crash.log`,
+with each line tagged `[bluetooth]`.
+
+## Remotes
+
+`device.conf` lists the remotes the plugin reads, in order of preference:
+
+```sh
+BT_DEVICE_NAMES="Free3-P|Kobo Remote"
+```
+
+Every listed remote that is connected turns pages. While a remote earlier in
+the list is missing, the plugin keeps dialling it about once a minute, even if
+a later one is connected. Edit the list and restart KOReader to change it.
+
+**Official Kobo Remote.** To pair it, run **RePair → Kobo Remote** and press
+one of its buttons while it scans, so it advertises. It forgets its bond
+whenever it loses power (see [Known issues](#known-issues)), so it needs
+re-pairing after a battery change.
+
+**Hanlinyue Free3.** Set the switch on the side to **P**. Press the side On key
+until the light over the **↑↓** icon is lit: *Up and Down Mode*. In that mode
+the top key turns back and the middle key turns forward, sending exactly the
+codes the Kobo Remote sends. The bottom key runs whatever **Third button** is
+set to. Pair it once with **RePair → Free3-P** while its blue light is flashing.
+It keeps its bond through power-offs, so after that it only needs switching on.
+The plugin picks it up within about a minute. Volume mode, the other one likely
+to be selected by accident, sends volume keys, which turn no pages.
+
+**Another remote** may work if it sends the same keyboard Up/Down Arrow codes:
+add its exact Bluetooth name to the list. `evtest` on its input device shows
+what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
+(forward) and `70052` (back).
 
 ## Known issues
 
@@ -120,16 +168,21 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
   encryption, stay unreachable and no input device is ever created. Only a
   fresh bond recovers it, which is what *Reconnect to Device* now does on its
   own. Confirmed on the Sage from `bluetoothd` debug logs.
-- **The link doesn't come back by itself.** When the remote drops, BlueZ will
-  not re-dial it, so it stays gone until something asks for a connection.
+- **The link doesn't come back by itself**, for either remote. When the Kobo
+  Remote drops, BlueZ will not re-dial it, so it stays gone until something
+  asks for a connection. The Free3 doesn't reconnect by itself either: every
+  return seen on the Sage was the plugin dialling it.
   `[Policy] ReconnectUUIDs` is **not** the answer and adding HOGP (`1812`) to
   it does nothing: the policy plugin reconnects by calling a profile's
   `connect` method, LE profiles like HoG don't have one, and the attempt fails
   with `Operation not supported`. That's why the stock list holds only BR/EDR
-  profiles. The plugin therefore dials it itself: when no input device is
-  present it retries in the background, about once a minute, and the remote is
-  usually back within seconds of dropping. It deliberately won't re-pair
-  unattended, so a bond the remote has *forgotten* still needs a menu tap.
+  profiles. The plugin therefore dials the remotes itself, in the background,
+  about once a minute. It deliberately won't re-pair unattended, so a bond the
+  remote has *forgotten* still needs a menu tap.
+- **Bluetooth occasionally fails to come up.** `hci0` sometimes stays down after
+  `on.sh`. With the startup option, that shows only as
+  `could not turn on at startup: Error: hci0 did not come up` in `crash.log`,
+  and no remote. *Toggle Bluetooth* off and on again recovers it.
 - **Bluetooth needs somewhere to write.** The rootfs is ~282 MB and ships
   nearly full; BlueZ stores bonds under `/var/db/bluetooth`, and when the disk
   is full it fails to persist them with no symptom other than pairings that
@@ -142,7 +195,10 @@ Wi-Fi has to be on; the plugin refuses to start otherwise.
   (`dropbear`) runs from `/mnt/onboard`, so USB mass storage reports the
   filesystem busy while it is up. Turn SSH off first. Bluetooth itself no longer
   gets in the way.
-- **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned.
+- **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned. The Kobo
+  Remote auto-repeats while a button is held. The Free3 sends one code on press
+  and one on release, 30 ms apart, and doesn't repeat while held, so either way
+  a press turns one page.
 - `device.lua.patch` and `uhid/` are inherited from upstream and are **not** part
   of the Sage setup described here. `uhid` is compiled into this kernel, and the
   page-turn path bypasses KOReader's keymap entirely, so the `BT*` key events in
