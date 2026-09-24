@@ -44,7 +44,11 @@ itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetoo
   capabilities including `A3`,`A4` (163/164 = `NextSong`/`PlayPause`).
 - Lands on `/dev/input/eventN` via `uhid` once connected **and bonded**.
   `N` is **not stable** across reconnects (seen as event3, event4, …).
-- Auto-repeats while a button is held, roughly every 135–200 ms.
+- Sends each button's code **twice per press: once at press, once at release**
+  (4–200 ms later for a tap). While held it sends only empty reports (a bare
+  `SYN_REPORT`) every ~37 ms, then the second code when released, however long
+  that takes. Measured with `evtest`, 2026-09-24. This used to be read as
+  "auto-repeats every 135–200 ms"; those were the release codes of short taps.
 - **Discards its bond when it loses power.** Pull the battery and it comes back
   advertising as unbonded while BlueZ still holds the key. See §6.
 - Stays connectable for a while after a software `disconnect` — a plain
@@ -73,7 +77,7 @@ Confirmed on the Sage with `bluetoothctl info`, `/proc/bus/input/devices` and
   (§3.5f) like the Kobo Remote does.
 - Sends **only `MSC_SCAN`**, no `EV_KEY`, like the Kobo Remote. Each press sends
   its code twice, ~30 ms apart (press and release), and nothing more while
-  held — no auto-repeat. The 0.5 s debounce makes that one page turn.
+  held — no auto-repeat. A fast double-tap puts presses ~140 ms apart.
 - Its modes (cycled with the side On key) send, top/middle/bottom key:
 
   | Mode | Codes |
@@ -283,23 +287,16 @@ UI event directly:
 
 ```lua
 local bt_hook_registered = false
-local bt_last_seen = {}
 
 local BT_SCAN_FORWARD = 0x70051  -- Keyboard Down Arrow
 local BT_SCAN_BACK    = 0x70052  -- Keyboard Up Arrow
-local BT_REPEAT_GAP   = 0.5
 
 -- inside Bluetooth:init()
 if not bt_hook_registered then
     bt_hook_registered = true
     Device.input:registerEventAdjustHook(function(_, ev)
         if ev.type == 4 and ev.code == 4 then  -- EV_MSC, MSC_SCAN
-            local now = ev.time.sec + ev.time.usec / 1000000
-            local prev = bt_last_seen[ev.value] or 0
-            bt_last_seen[ev.value] = now
-            if now - prev < BT_REPEAT_GAP then
-                return
-            end
+            -- (press pairing, below, decides whether this code acts)
             if ev.value == BT_SCAN_FORWARD then
                 UIManager:sendEvent(Event:new("GotoViewRel", 1))
             elseif ev.value == BT_SCAN_BACK then
@@ -309,6 +306,22 @@ if not bt_hook_registered then
     end)
 end
 ```
+
+**Press pairing (#31).** Both remotes send each press's code exactly twice:
+the Free3 both at press, 18–40 ms apart; the Kobo Remote at press and at
+release. So a press acts on its first code and swallows its second
+(`bt_pending`). The Kobo Remote's empty reports while a button is held (bare
+`SYN_REPORT`s, which the hook sees too) count as activity, keeping the pair
+open however long the button is held. With no activity for `BT_PAIR_GAP`
+(0.5 s), the pair is abandoned, so a lost code costs one press rather than
+leaving every later press acting on release.
+
+This replaced a 0.5 s per-value time window. No single window can separate the
+two remotes: the Kobo Remote's release can come 200 ms after its press, and a
+Free3 re-tap 140 ms after the last. Replaying the `evtest` captures, the old
+window turned two pages for each Kobo Remote press held longer than 0.5 s and
+dropped the second page of a Free3 double-tap. The pairing got every press
+right.
 
 The hook as shipped also honours **Invert page-turn buttons** (a
 `G_reader_settings` flag read on every press) and runs the Dispatcher actions
@@ -472,9 +485,9 @@ wraps every script as `out=$(/bin/sh <script>); printf '%s\n' "$out"`.
 
 Symptom: one button press advanced 2 pages.
 
-Red herring: it looked like a timing/repeat problem, and the remote *does*
-auto-repeat at ~135–200 ms while held, so widening the debounce window seemed
-right. It never fully worked.
+Red herring: it looked like a timing/repeat problem, since the remote sends a
+second code ~135–200 ms after the first (its release, as it turned out; see
+§1), so widening the debounce window seemed right. It never fully worked.
 
 The tell: `logger.info` output showed pairs of lines with **byte-identical
 timestamps and deltas**. That's not two events — it's one event handled twice.
@@ -554,10 +567,10 @@ apart from the failure itself. Check `df -h /` first.
    on a full disk before a backup existed. Everything has worked on BlueZ
    defaults since. If a pristine copy ever turns up in a firmware package,
    worth diffing.
-7. **Debounce gap is a guess.** `BT_REPEAT_GAP = 0.5` works; not tuned. There
-   is no `EV_KEY` to work with — MSC_SCAN only — so time-based is the only
-   option available. The Free3 sends press and release 30 ms apart and doesn't
-   repeat while held; the Kobo Remote auto-repeats.
+7. **Press pairing assumes exactly two codes per press** (§3.5b), which holds
+   for both remotes as measured. A third remote that sends one code per press
+   would turn a page only on every other press, and would need its own
+   handling.
 8. **Why the Kobo Remote gets two input devices** is not established (§3.5d).
 
 ---

@@ -27,10 +27,15 @@ local _ = require("gettext")
 -- Module-level state, shared by every instance of this plugin in the process.
 -- KOReader init()s plugins once per UI context (FileManager and ReaderUI), and
 -- registerEventAdjustHook CHAINS hooks rather than replacing them. Keeping the
--- flag and the debounce table here means only one hook is ever registered, and
--- it debounces against a single shared table.
+-- flag and the press-tracking state here means only one hook is ever
+-- registered, and it tracks presses in a single shared place.
 local bt_hook_registered = false
-local bt_last_seen = {}
+
+-- Press tracking; see BT_PAIR_GAP. Keyed by MSC_SCAN value.
+local bt_pending = {}        -- true while a press's second code is due
+local bt_last_code = {}      -- when that value's last code arrived
+local bt_last_bare_syn = 0   -- when the last empty report arrived
+local bt_prev_ev_type = nil  -- type of the event before the current one
 
 -- MSC_SCAN values: HID usages, page in the high 16 bits. evtest prints them in
 -- hex. Keyboard Down/Up Arrow are what the official Kobo Remote sends, and what
@@ -41,9 +46,25 @@ local BT_SCAN_BACK = 0x70052     -- Keyboard Up Arrow
 -- no equivalent. It runs whatever Dispatcher actions the menu assigns to it.
 local BT_SCAN_THIRD = 0x7002c    -- Keyboard Spacebar
 
--- The remote auto-repeats while a button is held (~150-200ms cadence), so a
--- press must only fire once until a clear gap indicates a genuine release.
-local BT_REPEAT_GAP = 0.5
+-- Every press sends its code exactly twice, on both remotes, measured with
+-- evtest on the Sage (#31):
+--   Free3        both at press, 18-40 ms apart; nothing at release, nothing
+--                while held. A fast double-tap puts presses ~140 ms apart.
+--   Kobo Remote  one at press, one at release, 4-200 ms later for a tap. While
+--                held it sends empty reports (a bare SYN) every ~37 ms, and
+--                the second code only on release, however long that takes.
+-- So a press acts on its first code and swallows its second. No single time
+-- window can do that: the Kobo Remote's release can come 200 ms after its
+-- press, a Free3 re-tap 140 ms after the last. The old 0.5 s window lost the
+-- second page of a Free3 double-tap, and turned two pages for a Kobo Remote
+-- press held longer than half a second.
+--
+-- The empty reports of a held Kobo Remote button count as activity, so the
+-- pair stays open for as long as it is held. With nothing at all for this
+-- long, the pair is abandoned and the next code counts as a new press. That
+-- way a lost code costs one press, rather than leaving every later press
+-- acting on release.
+local BT_PAIR_GAP = 0.5
 
 -- Global KOReader setting behind "Invert page-turn buttons". Read on every
 -- press rather than cached, so the menu toggle takes effect immediately.
@@ -349,13 +370,30 @@ function Bluetooth:init()
     if not bt_hook_registered then
         bt_hook_registered = true
         Device.input:registerEventAdjustHook(function(_, ev)
-            if ev.type == 4 and ev.code == 4 then  -- EV_MSC, MSC_SCAN
-                local now = ev.time.sec + ev.time.usec / 1000000
-                local prev = bt_last_seen[ev.value] or 0
-                bt_last_seen[ev.value] = now
-                if now - prev < BT_REPEAT_GAP then
-                    return  -- still inside the same held-button repeat run
+            local prev_type = bt_prev_ev_type
+            bt_prev_ev_type = ev.type
+            local now = ev.time.sec + ev.time.usec / 1000000
+            if ev.type == 0 then  -- EV_SYN
+                -- A report with nothing in it: a SYN_REPORT straight after
+                -- another SYN. A held Kobo Remote button sends these; a
+                -- touch or key report always has events before its SYN.
+                if ev.code == 0 and prev_type == 0 then
+                    bt_last_bare_syn = now
                 end
+                return
+            end
+            if ev.type == 4 and ev.code == 4 then  -- EV_MSC, MSC_SCAN
+                local value = ev.value
+                if value ~= BT_SCAN_FORWARD and value ~= BT_SCAN_BACK and value ~= BT_SCAN_THIRD then
+                    return
+                end
+                local last = math.max(bt_last_code[value] or 0, bt_last_bare_syn)
+                bt_last_code[value] = now
+                if bt_pending[value] and now - last < BT_PAIR_GAP then
+                    bt_pending[value] = false
+                    return  -- the press's second code
+                end
+                bt_pending[value] = true
                 local step
                 if ev.value == BT_SCAN_FORWARD then
                     step = 1

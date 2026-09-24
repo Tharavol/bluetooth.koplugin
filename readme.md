@@ -199,10 +199,12 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
   (`dropbear`) runs from `/mnt/onboard`, so USB mass storage reports the
   filesystem busy while it is up. Turn SSH off first. Bluetooth itself no longer
   gets in the way.
-- **The debounce gap (0.5 s) is a guess.** It works; it isn't tuned. The Kobo
-  Remote auto-repeats while a button is held. The Free3 sends one code on press
-  and one on release, 30 ms apart, and doesn't repeat while held, so either way
-  a press turns one page.
+- **One page per press relies on each press sending its code twice.** Both
+  remotes do, as measured: the Free3 twice at press, the Kobo Remote at press
+  and again at release. The plugin acts on the first and ignores the second, so
+  holding a button turns one page, and a quick double-tap turns two. Another
+  remote that sends a single code per press would turn a page only on every
+  other press.
 - `device.lua.patch` and `uhid/` are inherited from upstream and are **not** part
   of the Sage setup described here. `uhid` is compiled into this kernel, and the
   page-turn path bypasses KOReader's keymap entirely, so the `BT*` key events in
