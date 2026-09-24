@@ -628,29 +628,46 @@ end
 -- was the dead one, so the remote was connected but turned no pages. A device
 -- that never sends anything costs nothing to hold open, so holding them all is
 -- the one choice that can't pick wrong.
+--
+-- Also returns the set of remote names present, for the watcher's preference
+-- check.
 function Bluetooth:findInputDevices()
-    local paths = {}
+    local paths, present = {}, {}
     local f = io.open("/proc/bus/input/devices", "r")
     if not f then
-        return paths
+        return paths, present
     end
-    local in_block = false
+    local current = nil
     for line in f:lines() do
         local name = line:match('^N: Name="(.*)"%s*$')
         if name then
             -- Exact, like the scripts: a substring match would also take any
             -- other device whose name merely contains the remote's.
-            in_block = BT_DEVICE_NAME_SET[name] == true
-        elseif in_block then
+            current = BT_DEVICE_NAME_SET[name] and name or nil
+        elseif current then
             local ev = line:match("^H: Handlers=.*(event%d+)")
             if ev then
                 table.insert(paths, "/dev/input/" .. ev)
-                in_block = false
+                present[current] = true
+                current = nil
             end
         end
     end
     f:close()
-    return paths
+    return paths, present
+end
+
+-- The remotes listed ahead of the best one present, in order. Empty when the
+-- first choice is connected. With nothing present, that is every remote.
+local function preferredMissing(present)
+    local missing = {}
+    for _i, name in ipairs(BT_DEVICE_NAMES) do
+        if present[name] then
+            break
+        end
+        table.insert(missing, name)
+    end
+    return missing
 end
 
 -- Poll until every listed device has a node we can actually open.
@@ -786,7 +803,15 @@ end
 -- take the destructive path: repair.sh removes the bond before rebuilding it,
 -- and a re-pair that doesn't take would leave the remote worse off than it
 -- started. Recovering a lost bond stays a deliberate menu tap.
-function Bluetooth:tryReconnect()
+--
+-- `names` limits it to those remotes; the watcher passes the ones missing
+-- ahead of whichever is connected, so a preferred remote coming back is
+-- dialled even while another one is in use. The Free3 does not reconnect by
+-- itself either -- every return seen on the Sage was this dialling it -- so
+-- without this a connected Kobo Remote kept it out indefinitely. Failures in
+-- that case are only debug-logged: with the preferred remote simply switched
+-- off, they would otherwise fill crash.log at one a minute.
+function Bluetooth:tryReconnect(names, quiet)
     local now = os.time()
     if now - bt_last_reconnect < BT_RECONNECT_INTERVAL then
         return
@@ -797,7 +822,11 @@ function Bluetooth:tryReconnect()
     -- its own wrap. It runs in the BACKGROUND: nothing on screen, and nothing a
     -- tap on the reader can cancel.
     Trapper:wrap(function()
-        local completed, result = self:executeScript("connect.sh --no-repair", BACKGROUND())
+        local script = "connect.sh --no-repair"
+        if names then
+            script = script .. " " .. shellQuote(table.concat(names, "|"))
+        end
+        local completed, result = self:executeScript(script, BACKGROUND())
 
         -- Every outcome gets a line. Logging only the two recognised ones left
         -- silence meaning both "never ran" and "ran and said something else",
@@ -809,12 +838,15 @@ function Bluetooth:tryReconnect()
         elseif result:match("Connection successful") then
             -- Opening the input device is left to the next tick, which is what
             -- it's for; the uhid node lags the link coming up anyway.
-            logger.info("Bluetooth: reconnected the remote unattended")
+            logger.info("Bluetooth: reconnected the remote unattended" ..
+                        (result:match("Remote: ([^\n]+)") and
+                         " (" .. result:match("Remote: ([^\n]+)") .. ")" or ""))
         elseif result:match("without a valid bond") then
             logger.info("Bluetooth: the remote is back but its bond is gone; needs a re-pair")
         else
-            logger.info("Bluetooth: unattended reconnect did not take: " ..
-                        result:gsub("%s+", " "):sub(1, 120))
+            local log = quiet and logger.dbg or logger.info
+            log("Bluetooth: unattended reconnect did not take: " ..
+                result:gsub("%s+", " "):sub(1, 120))
         end
     end)
 end
@@ -829,7 +861,7 @@ local function btWatchTick()
     end
 
     if Bluetooth:isBluetoothOn() then
-        local paths = Bluetooth:findInputDevices()
+        local paths, present = Bluetooth:findInputDevices()
         if #paths > 0 then
             -- Reconcile what we hold with what is listed: close what has gone,
             -- open what is new, and leave the rest alone so a live remote isn't
@@ -861,6 +893,11 @@ local function btWatchTick()
                         logger.dbg("Bluetooth: watcher could not open " .. path .. ": " .. tostring(err))
                     end
                 end
+            end
+            -- A remote is in use, but maybe not the first choice.
+            local missing = preferredMissing(present)
+            if #missing > 0 then
+                Bluetooth:tryReconnect(missing, true)
             end
         else
             if #bt_open_paths > 0 then
