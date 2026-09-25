@@ -45,11 +45,15 @@ pair_output=
 paired=
 pair_tries=0
 while [ "$(date +%s)" -lt "$deadline" ] && [ "$pair_tries" -lt 3 ]; do
-    bluetooth_address=$(device_macs "$name" | head -n 1)
-    if [ -z "$bluetooth_address" ]; then
+    found=$(device_macs "$name" | head -n 1)
+    if [ -z "$found" ]; then
         bltctl_for 4 scan on 2>&1 | diag
         continue
     fi
+    # Kept once found: after a failed pair BlueZ drops the device, and a
+    # final scan that ran out of time must not leave the address empty for
+    # the trust, connect and bond check below.
+    bluetooth_address=$found
     pair_tries=$((pair_tries + 1))
     pair_output=$(bltctl_for 20 pair "$bluetooth_address" 2>&1) || true
     if echo "$pair_output" | grep -qE "Pairing successful|AlreadyExists"; then
