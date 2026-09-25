@@ -35,7 +35,8 @@ first_error() {
         /Failed|[Ee]rror/ { print; exit }'
 }
 
-# Print the MAC of every known device named exactly $1, one per line. `bluetoothctl devices` prints lines of the form
+# Print the MAC of every known device named exactly $1, one per line.
+# `bluetoothctl devices` prints lines of the form
 #   Device AA:BB:CC:DD:EE:FF Kobo Remote
 # An unanchored grep for the name matched any device whose name merely
 # contained it, and two matches turned the address into two MACs. Escape
@@ -56,6 +57,18 @@ device_macs() {
         }'
 }
 
+# Wait up to 5 s for the controller to report "Powered: yes" or "Powered: no"
+# ($1), e.g. after `bltctl power on`. Returns whether it did.
+wait_powered() {
+    n=0
+    while ! bltctl show 2>/dev/null | grep -q "Powered: $1"; do
+        n=$((n + 1))
+        if [ "$n" -ge 5 ]; then
+            return 1
+        fi
+        sleep 1
+    done
+}
 
 # Succeed once `bluetoothctl info` reports both Paired: yes and Connected: yes.
 # Leaves the last info output in $bond_info so a caller can report the state

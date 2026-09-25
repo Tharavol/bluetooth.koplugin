@@ -8,12 +8,13 @@ BT_DIR=$(dirname "$0")
 # remote only, on purpose -- this removes its bond before rebuilding it.
 name=${1:-${BT_DEVICE_NAMES%%|*}}
 
-# shut off the power, make sure its turned off
+# Cycle the controller's power to start the re-pair from a clean state. Wait
+# for each change to show in `bluetoothctl show` rather than sleeping a fixed
+# time.
 bltctl power off 2>&1 | diag
-sleep 2
-# turn back the power, make sure it's come back online
+wait_powered no
 bltctl power on 2>&1 | diag
-sleep 2
+wait_powered yes
 
 # Delete every old entry for the remote. A for loop rather than `| while read`,
 # which would run the body in a subshell and lose anything it set.
