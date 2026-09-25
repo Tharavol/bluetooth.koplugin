@@ -194,6 +194,30 @@ local function pause(seconds)
     coroutine.yield()
 end
 
+-- While a remote is being connected or re-paired from the menu, the watcher
+-- makes no reconnect attempts of its own. On the Sage an unattended connect.sh
+-- dialled the Free3 in the middle of a RePair's scan, and the pair that
+-- followed ran against an already connected device and left no bond
+-- ("Paired: no"). A deadline rather than a flag, for the same reason as
+-- bt_starting_until; 90 s covers repair.sh's worst case.
+local BT_MANUAL_GRACE = 90
+local bt_manual_until = 0
+
+-- Call inside Trapper:wrap(). An unattended attempt already under way is left
+-- to finish first; connect.sh --no-repair gives up within about 15 s.
+local function beginManual()
+    bt_manual_until = os.time() + BT_MANUAL_GRACE
+    while bt_reconnect_running_since and os.time() - bt_reconnect_running_since < BT_RECONNECT_INTERVAL do
+        pause(1)
+    end
+end
+
+-- Only once the script has finished: a dismissed message leaves it running,
+-- and the deadline then keeps the watcher out until it is done.
+local function endManual()
+    bt_manual_until = 0
+end
+
 -- Read from device.conf so the names live in one place; the shell scripts
 -- source the same file. Falls back to both known remotes if it's missing.
 --
@@ -866,6 +890,9 @@ end
 -- off, they would otherwise fill crash.log at one a minute.
 function Bluetooth:tryReconnect(names, quiet)
     local now = os.time()
+    if now < bt_manual_until then
+        return  -- a connect or re-pair from the menu is running
+    end
     if bt_reconnect_running_since and now - bt_reconnect_running_since < BT_RECONNECT_INTERVAL then
         return  -- the previous attempt is still going
     end
@@ -1039,8 +1066,12 @@ function Bluetooth:onDeviceRepair(name)
     if name then
         script = script .. " " .. shellQuote(name)
     end
+    beginManual()
     local completed, result = self:executeScript(script,
         T(_("Pairing with %1… Put it in pairing mode."), name or BT_DEVICE_NAMES[1]))
+    if completed then
+        endManual()
+    end
 
     if not completed then
         logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
@@ -1078,7 +1109,11 @@ function Bluetooth:onConnectToDevice()
     end
 
     local script = self:getScriptPath("connect.sh")
+    beginManual()
     local completed, result = self:executeScript(script, _("Connecting to the remote…"))
+    if completed then
+        endManual()
+    end
 
     if not completed then
         -- Dismissed: connect.sh is still running and may yet succeed, so
