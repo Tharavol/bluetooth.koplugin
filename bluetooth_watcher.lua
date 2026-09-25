@@ -73,37 +73,9 @@ local starting_until = 0
 local MANUAL_GRACE = 180
 local manual_until = 0
 
--- Whether Bluetooth is meant to be on: since the last start, from the menu,
--- at startup, on waking or in recovery, and until the menu or a suspend turns
--- it off. What the Wi-Fi check below restarts.
-local wanted = false
-
--- Wi-Fi as of the last tick, to notice it being turned on or off (#42). Both
--- take Bluetooth down with them, silently: turning Wi-Fi off cuts the chip's
--- power, and turning it on loads the Wi-Fi driver, which resets the chip. On
--- the Sage, after Wi-Fi off, hci0 still read UP RUNNING and the Free3's input
--- device stayed listed while the Free3 itself had dropped; after Wi-Fi on, the
--- Free3 went eight seconds later. Nothing in BlueZ reports either, so the
--- watcher restarts Bluetooth whenever the Wi-Fi state flips. Polled rather
--- than taken from KOReader's network events, because Wi-Fi is also restored
--- in the background after startup and waking, with no event until it has
--- connected, if it ever does.
-local last_wifi = nil
-
 -- Call just before on.sh starts.
 function Watcher.starting()
     starting_until = os.time() + START_GRACE
-    wanted = true
-    -- A start works with Wi-Fi as it is now; only a change after this point
-    -- resets the chip under it. Without this, waking up restarted Bluetooth
-    -- once for nothing: Wi-Fi was on when the Kobo went to sleep and is off
-    -- until KOReader restores it.
-    last_wifi = Stack.isWifiOn()
-end
-
--- Call when Bluetooth is turned off on purpose.
-function Watcher.stopped()
-    wanted = false
 end
 
 -- Call when on.sh reports back.
@@ -144,7 +116,6 @@ end
 function Watcher.startInBackground(why)
     Trapper:wrap(function()
         Watcher.starting()
-        Stack.powerChip()
         local completed, result = Stack.run("on.sh", Stack.BACKGROUND())
         Watcher.started()
         if not completed then
@@ -247,18 +218,6 @@ local function tick()
 
     if os.time() < starting_until then
         -- on.sh is still bringing the stack up; see starting_until.
-        Watcher.schedule()
-        return
-    end
-
-    local wifi = Stack.isWifiOn()
-    local wifi_changed = last_wifi ~= nil and wifi ~= last_wifi
-    last_wifi = wifi
-    if wifi_changed and wanted then
-        logger.info("Bluetooth: Wi-Fi was turned " .. (wifi and "on" or "off") ..
-                    ", which resets the chip; restarting Bluetooth")
-        Input.closeAll()
-        Watcher.startInBackground("after Wi-Fi was turned " .. (wifi and "on" or "off"))
         Watcher.schedule()
         return
     end
