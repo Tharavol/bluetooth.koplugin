@@ -21,6 +21,9 @@ pcall(ffi.cdef, "ssize_t readlink(const char *path, char *buf, size_t bufsiz);")
 local have_readlink = pcall(function() return ffi.C.readlink end)
 
 local _ = require("gettext")
+-- Messages take their variable parts through T() placeholders (%1, %2), so
+-- translators get whole sentences they can reorder.
+local T = require("ffi/util").template
 
 -- Module-level state, shared by every instance of this plugin in the process.
 -- KOReader init()s plugins once per UI context (FileManager and ReaderUI), and
@@ -388,7 +391,7 @@ function Bluetooth:addToMainMenu(menu_items)
                 end,
                 callback = function()
                     if not self:isWifiEnabled() then
-                        self:popup("Please turn on Wi-Fi to continue.")
+                        self:popup(_("Please turn on Wi-Fi to continue."))
                     elseif self:isBluetoothOn() then
                         self:onBluetoothOff()
                     else
@@ -466,8 +469,8 @@ function Bluetooth:addToMainMenu(menu_items)
             {
                 text_func = function()
                     local actions = G_reader_settings:readSetting(BT_BUTTONS_SETTING, {})[BT_THIRD_KEY]
-                    return _("Third button (Free3): ") ..
-                           (actions and Dispatcher:menuTextFunc(actions) or _("Nothing"))
+                    return T(_("Third button (Free3): %1"),
+                             actions and Dispatcher:menuTextFunc(actions) or _("Nothing"))
                 end,
                 sub_item_table_func = function()
                     -- KOReader's own action picker, as used for gestures and
@@ -641,7 +644,7 @@ function Bluetooth:onRefreshPairing()
         return
     end
     if self:refreshPairing() then
-        self:popup(_("Bluetooth device at ") .. table.concat(bt_open_paths, ", ") .. " is now open.")
+        self:popup(T(_("Bluetooth device at %1 is now open."), table.concat(bt_open_paths, ", ")))
     end
 end
 
@@ -978,11 +981,11 @@ function Bluetooth:refreshPairing()
     local ready, listed = self:waitForInputDevices()
     if #ready == 0 then
         if #listed > 0 then
-            self:popup(_("The remote is connected and listed as ") .. table.concat(listed, ", ") ..
-                       _(", but no device node for it exists."))
+            self:popup(T(_("The remote is connected and listed as %1, but no device node for it exists."),
+                         table.concat(listed, ", ")))
         else
-            self:popup(_("Could not find ") .. table.concat(BT_DEVICE_NAMES, _(" or ")) ..
-                       _(" in /proc/bus/input/devices. Is it connected?"))
+            self:popup(T(_("Could not find %1 in /proc/bus/input/devices. Is it connected?"),
+                         table.concat(BT_DEVICE_NAMES, _(" or "))))
         end
         return false
     end
@@ -995,7 +998,7 @@ function Bluetooth:refreshPairing()
     -- same eventN left the remote connected but dead.
     local ok, err = self:reopenInputDevices(ready)
     if not ok then
-        self:popup(_("Error: ") .. tostring(err))
+        self:popup(T(_("Error: %1"), tostring(err)))
         return false
     end
 
@@ -1017,7 +1020,7 @@ function Bluetooth:onDeviceRepair(name)
         script = script .. " " .. shellQuote(name)
     end
     local completed, result = self:executeScript(script,
-        _("Pairing with ") .. (name or BT_DEVICE_NAMES[1]) .. _("… Put it in pairing mode."))
+        T(_("Pairing with %1… Put it in pairing mode."), name or BT_DEVICE_NAMES[1]))
 
     if not completed then
         logger.dbg("Bluetooth: " .. script .. " dismissed or could not be run")
@@ -1025,7 +1028,7 @@ function Bluetooth:onDeviceRepair(name)
     end
 
     if not result then
-        self:popup(_("Error: could not run ") .. script)
+        self:popup(T(_("Error: could not run %1"), script))
         return
     end
 
@@ -1068,7 +1071,7 @@ function Bluetooth:onConnectToDevice()
     end
 
     if not result then
-        self:popup(_("Error: could not run ") .. script)
+        self:popup(T(_("Error: could not run %1"), script))
         return
     end
 
@@ -1115,8 +1118,8 @@ function Bluetooth:onShowBluetoothInfo()
     end
     local model = Device.model or "unknown"
     local lines = {
-        _("Device: ") .. (DEVICE_NAMES[model] and DEVICE_NAMES[model] .. " (" .. model .. ")" or model),
-        _("Bluetooth: ") .. (self:isBluetoothOn() and _("on") or _("off")),
+        T(_("Device: %1"), DEVICE_NAMES[model] and DEVICE_NAMES[model] .. " (" .. model .. ")" or model),
+        T(_("Bluetooth: %1"), self:isBluetoothOn() and _("on") or _("off")),
     }
     local completed, result = self:executeScript("info.sh", _("Reading Bluetooth info…"))
     if completed and result then
@@ -1131,7 +1134,7 @@ end
 function Bluetooth:connectedMessage(result)
     local name = result:match("Remote: ([^\n]+)")
     if name then
-        return _("Connected to ") .. name .. "."
+        return T(_("Connected to %1."), name)
     end
     return _("Connection successful!")
 end
