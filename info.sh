@@ -20,6 +20,11 @@ if [ -n "$version" ]; then
             print "Bus: " b
             print "Address: " a
         }'
+elif [ -e /sys/class/bluetooth/hci0 ]; then
+    # Attached but silent: typically the chip lost its power or was reset
+    # under it -- turning Wi-Fi on or off does both -- and the plugin's watcher
+    # restarts Bluetooth within a few seconds.
+    echo "Controller: not answering (restarting after a Wi-Fi change?)"
 else
     echo "Controller: unavailable while Bluetooth is off"
 fi
@@ -34,7 +39,7 @@ if [ -n "$driver" ]; then
     chip=$(echo "${driver#rtl}" | tr '[:lower:]' '[:upper:]')
     echo "Chip: RTL$chip (from the $driver Wi-Fi driver)"
 else
-    echo "Chip: unknown (named by the Wi-Fi driver, which loads with Wi-Fi)"
+    echo "Chip: not shown while Wi-Fi is off (the Wi-Fi driver names it)"
 fi
 
 bluez=$(bluetoothctl --version 2>/dev/null | awk '{ print $2 }')
