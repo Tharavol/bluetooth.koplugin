@@ -21,6 +21,9 @@ itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetoo
 | BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; the Wi-Fi module is `8821cs`; `hciconfig hci0 version` reports `Manufacturer: Realtek Semiconductor Corporation (93)`, HCI/LMP 4.1, bus UART. `rtk_hciattach`'s log prints `IC: RTL8821CS` — but only once it exits: it buffers its output, so `/var/log/rtk_hciattach.log` is **empty while it runs** |
 | BT is UART-attached on `/dev/ttyS1`, H5 (three-wire) protocol | Nickel runs `/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5` |
 | WiFi driver module is `8821cs` | `/sys/module/8821cs/parameters/rtw_btcoex_enable` exists. KOReader unloads it with Wi-Fi |
+| **Wi-Fi off cuts the chip's power, Bluetooth included** | KOReader's `disable-wifi.sh` runs `rmmod 8821cs`, then `ntx_io` ioctl 208 (`CM_WIFI_CTRL`) with 0: the Sage has no `sdio_wifi_pwr` module (`/drivers/*/wifi` doesn't exist). The Free3 dropped the moment Wi-Fi went off, while `hci0` still read `UP RUNNING` and its input device stayed listed — nothing on the Kobo side noticed (2026-09-25) |
+| **Wi-Fi on resets Bluetooth too** | `enable-wifi.sh` powers the chip (208, 1) and loads `8821cs`; the Free3 dropped 8 s after `Kobo Wi-Fi: enabling Wi-Fi` |
+| **Bluetooth needs only the chip's power, not Wi-Fi** | With Wi-Fi off and `8821cs` unloaded, `ntx_io` 208 1 then `on.sh` brought `hci0` up and connected the Free3, which turned pages (2026-09-25) |
 | Chip reset line exists in devicetree as node `bt` | `/sys/firmware/devicetree/base/bt/bt_rst_n` |
 | Power/reset is gated through rfkill | `/sys/devices/platform/bt/rfkill/rfkill0/state` — write `1` to unblock, `0` to block |
 | `uhid` is **built into the kernel**, not a module | `zcat /proc/config.gz \| grep CONFIG_UHID` → `CONFIG_UHID=y` (so `lsmod` shows nothing; this is expected, not a fault) |
@@ -361,8 +364,23 @@ back to a blocking `io.popen`, so a missed wrap shows up only as a freeze.
 
 **Startup.** *Turn on Bluetooth at startup* (on unless unticked) runs `on.sh`
 in the background 3 s after KOReader starts, once per process, unless
-Bluetooth is already up. The watcher connects afterwards. It isn't gated on
-Wi-Fi, unlike the Toggle entry (#42).
+Bluetooth is already up. The watcher connects afterwards.
+
+**Chip power and Wi-Fi (#42).** Bluetooth shares the chip with Wi-Fi, and any
+Wi-Fi change takes it down (§1). So:
+
+- Before every `on.sh` — menu, startup, waking, recovery — `Stack.powerChip()`
+  powers the chip if Wi-Fi is off, with the same `ntx_io` ioctl KOReader uses
+  (208, 1), made through the FFI. With Wi-Fi on it is already powered.
+- After `off.sh` — menu or suspend — `Stack.releaseChip()` powers it down
+  again, but only while Wi-Fi is off: never under a loaded Wi-Fi driver.
+- The watcher notes Wi-Fi's state each tick (`Stack.isWifiOn()`, KOReader's own
+  test: whether the interface exists) and, while Bluetooth is meant to be on,
+  **restarts it whenever Wi-Fi is turned on or off**. Polled rather than taken
+  from KOReader's network events, since Wi-Fi is also restored in the
+  background after startup and waking. The state is recorded at every start,
+  so a start's own Wi-Fi conditions never count as a change.
+- *Toggle Bluetooth* no longer requires Wi-Fi.
 
 **Suspend and resume (#29).** Left on across a suspend, the serial link to the
 chip died: `hci0` DOWN, `retransmitting` in `dmesg`, `org.bluez.Error.Busy`
@@ -430,8 +448,10 @@ cannot persist bonds at all. Check `df -h /` first.
 7. **The four `[General]` lines of `main.conf` are gone**, destroyed by
    `sed -i` on a full disk. Everything has worked on BlueZ defaults since. If a
    pristine copy turns up in a firmware package, worth diffing.
-8. The v1.6.0 and v1.7.0 milestones hold the rest: installing on other
-   models, packaging, the Wi-Fi gate (#42), and tests in CI.
+8. **A Wi-Fi change costs a Bluetooth restart**, about 10 s without a remote
+   (§3.4). Unavoidable while both share the chip and KOReader power-cycles it
+   for Wi-Fi.
+9. The v1.7.0 milestone holds the tests in CI.
 
 ---
 

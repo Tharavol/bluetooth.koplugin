@@ -117,8 +117,7 @@ end
 -- away, trying the remotes in order. A remote whose bond is gone still needs
 -- RePair from the menu, as with any unattended attempt.
 --
--- Not gated on Wi-Fi like the Toggle menu entry: whether Bluetooth really
--- needs it is unresolved (#42). If on.sh fails, the log says so.
+-- If on.sh fails, the log says so.
 function Bluetooth:autoStart()
     Watcher.startInBackground("at startup")
 end
@@ -136,10 +135,9 @@ function Bluetooth:addToMainMenu(menu_items)
                 checked_func = function()
                     return Stack.isBluetoothOn()
                 end,
+                -- No Wi-Fi needed: the plugin powers the chip itself (#42).
                 callback = function()
-                    if not Stack.isWifiEnabled() then
-                        self:popup(_("Please turn on Wi-Fi to continue."))
-                    elseif Stack.isBluetoothOn() then
+                    if Stack.isBluetoothOn() then
                         self:onBluetoothOff()
                     else
                         self:onBluetoothOn()
@@ -261,11 +259,13 @@ function Bluetooth:onSuspend()
         return
     end
     off_for_suspend = true
+    Watcher.stopped()
     Input.closeAll()
     -- Blocking: the Kobo suspends as soon as the Suspend handlers return, so
     -- a background run would still be going when it does. off.sh only kills
     -- two daemons and blocks the radio; it takes about a second.
     Stack.runBlocking("off.sh")
+    Stack.releaseChip()
     logger.info("Bluetooth: turned off for suspend")
 end
 
@@ -295,6 +295,7 @@ function Bluetooth:onBluetoothOn()
 
     local script = "on.sh"
     Watcher.starting()
+    Stack.powerChip()
     local completed, result = Stack.run(script, _("Starting Bluetooth…"))
     if completed then
         Watcher.started()
@@ -327,6 +328,7 @@ function Bluetooth:onBluetoothOff()
         return Trapper:wrap(function() self:onBluetoothOff() end)
     end
 
+    Watcher.stopped()
     -- The uhid device goes away with the stack, so drop our handle first
     -- rather than leaving it open against a device that no longer exists.
     Input.closeAll()
@@ -335,6 +337,7 @@ function Bluetooth:onBluetoothOff()
     -- success, and dismissing the message doesn't call the teardown back, so
     -- the stack goes down either way and the popup below stays true.
     Stack.run("off.sh", _("Turning Bluetooth off…"))
+    Stack.releaseChip()
 
     self:popup(_("Bluetooth turned off."))
 end

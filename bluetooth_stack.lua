@@ -7,6 +7,8 @@ and whether it (and Wi-Fi) is up.
 
 local UIManager = require("ui/uimanager")
 local Trapper = require("ui/trapper")
+local logger = require("logger")
+local ffi = require("ffi")
 local Config = require("bluetooth_config")
 
 local Stack = {}
@@ -108,16 +110,64 @@ function Stack.isBluetoothOn()
     return true
 end
 
-function Stack.isWifiEnabled()
-    local handle = io.popen("iwconfig")
-    if not handle then
+-- Whether Wi-Fi is on, the way KOReader itself decides it: on a Kobo, whether
+-- the Wi-Fi interface exists, which it does only while the Wi-Fi driver
+-- (8821cs on the Sage) is loaded.
+function Stack.isWifiOn()
+    local ok, NetworkMgr = pcall(require, "ui/network/manager")
+    if not ok or not NetworkMgr or not NetworkMgr.isWifiOn then
         return false
     end
-    local result = handle:read("*a")
-    handle:close()
+    local ok_on, on = pcall(NetworkMgr.isWifiOn, NetworkMgr)
+    return ok_on and on and true or false
+end
 
-    -- Check if Wi-Fi is enabled by looking for 'ESSID'
-    return result:match("ESSID") ~= nil
+-- Power for the Wi-Fi/Bluetooth chip (#42).
+--
+-- Bluetooth and Wi-Fi share the Sage's RTL8821CS, and KOReader's Wi-Fi off
+-- cuts the whole chip's power, so Bluetooth used to work only while Wi-Fi was
+-- on. Bluetooth talks to the chip over its own serial line and needs only the
+-- power, not the Wi-Fi driver: with Wi-Fi off, powering the chip and running
+-- on.sh connected the Free3, and it turned pages (2026-09-25).
+--
+-- Power is the same ntx_io ioctl KOReader's enable-wifi.sh and
+-- disable-wifi.sh use on the Sage, which has no sdio_wifi_pwr module:
+-- command 208 (CM_WIFI_CTRL), argument 1 for on and 0 for off. Returns false,
+-- quietly, where there is no /dev/ntx_io.
+local CM_WIFI_CTRL = 208
+local function setChipPower(on)
+    local ok, err = pcall(function()
+        require("ffi/posix_h")
+        local C = ffi.C
+        local fd = C.open("/dev/ntx_io", bit.bor(C.O_RDONLY, C.O_NONBLOCK, C.O_CLOEXEC))
+        if fd == -1 then
+            error("cannot open /dev/ntx_io")
+        end
+        local rc = C.ioctl(fd, CM_WIFI_CTRL, ffi.cast("int", on and 1 or 0))
+        C.close(fd)
+        if rc ~= 0 then
+            error("ioctl failed")
+        end
+    end)
+    if not ok then
+        logger.dbg("Bluetooth: could not switch the chip's power: " .. tostring(err))
+    end
+    return ok
+end
+
+-- Call before on.sh. With Wi-Fi on, the chip is already powered.
+function Stack.powerChip()
+    if not Stack.isWifiOn() and setChipPower(true) then
+        logger.info("Bluetooth: powered the chip, since Wi-Fi is off")
+    end
+end
+
+-- Call after off.sh. Only while Wi-Fi is off: never under a loaded Wi-Fi
+-- driver, and with Wi-Fi on the chip isn't ours to power down.
+function Stack.releaseChip()
+    if not Stack.isWifiOn() and setChipPower(false) then
+        logger.info("Bluetooth: powered the chip down, since Wi-Fi is off")
+    end
 end
 
 return Stack
