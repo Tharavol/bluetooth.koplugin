@@ -1188,6 +1188,11 @@ end
 -- The success popup, naming the remote when the script said which one.
 function Bluetooth:connectedMessage(result)
     local name = result:match("Remote: ([^\n]+)")
+    if name and result:match("Already connected") then
+        -- repair.sh found nothing to repair and left the bond alone.
+        return T(_("%1 is already connected and paired, so it was left as it is. " ..
+                   "To pair it again anyway, turn it off, choose RePair, then turn it on."), name)
+    end
     if name then
         return T(_("Connected to %1."), name)
     end

@@ -8,6 +8,27 @@ BT_DIR=$(dirname "$0")
 # remote only, on purpose -- this removes its bond before rebuilding it.
 name=${1:-${BT_DEVICE_NAMES%%|*}}
 
+# Leave a remote alone that has nothing to repair: connected, bonded, and with
+# its input device in place. Re-pairing a working Free3 costs a lot: dropped
+# by the power cycle below, it doesn't answer for about 45 s (see the pair
+# loop). main.lua keys off "Already connected" for its message.
+input_listed() {
+    BT_NAME="$1" awk '{ sub(/[ \t\r]+$/, "") }
+        $0 == "N: Name=\"" ENVIRON["BT_NAME"] "\"" { found = 1 }
+        END { exit !found }' /proc/bus/input/devices
+}
+for bluetooth_address in $(device_macs "$name"); do
+    info=$(bltctl info "$bluetooth_address" 2>&1) || true
+    if echo "$info" | grep -q "Paired: yes" && echo "$info" | grep -q "Connected: yes" &&
+        input_listed "$name"; then
+        echo "$name is connected with a working bond; leaving it as it is" | diag
+        echo "Remote: $name"
+        echo "Already connected"
+        echo "Connection successful"
+        exit 0
+    fi
+done
+
 # Cycle the controller's power to start the re-pair from a clean state. Wait
 # for each change to show in `bluetoothctl show` rather than sleeping a fixed
 # time.
