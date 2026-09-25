@@ -85,7 +85,32 @@ local BT_INVERT_SETTING = "bluetooth_invert_page_turn"
 local BT_BUTTONS_SETTING = "bluetooth_button_actions"
 local BT_THIRD_KEY = "third"
 
-local PLUGIN_DIR = "/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/"
+-- The plugin's own directory, with a trailing slash, for device.conf and the
+-- scripts. Taken from where this file was loaded, so an install anywhere
+-- works: under KOReader's own plugins/ or the data directory's, on an SD card,
+-- or with KOReader itself somewhere other than /mnt/onboard/.adds (#36). It
+-- used to be hardcoded, and anywhere else every script failed with "could not
+-- run" and device.conf went unread, with nothing saying why.
+--
+-- KOReader's plugin loader dofile()s main.lua by a path relative to its own
+-- directory ("plugins/bluetooth.koplugin/main.lua"), or an absolute one for an
+-- extra plugin path. A relative one is made absolute here, so the scripts
+-- don't depend on the current directory. The loader's own `path` field would
+-- do too, but it is set only after this file has run, and device.conf is read
+-- while it runs.
+local function pluginDir()
+    local source = debug.getinfo(1, "S").source
+    local dir = source:match("^@(.*/)[^/]*$") or "./"
+    if dir:sub(1, 1) ~= "/" then
+        local ok, lfs = pcall(require, "libs/libkoreader-lfs")
+        local cwd = ok and lfs.currentdir()
+        if cwd then
+            dir = cwd .. "/" .. dir:gsub("^%./", "")
+        end
+    end
+    return dir
+end
+local PLUGIN_DIR = pluginDir()
 
 -- Seconds to wait for the uhid node after the link comes up.
 local BT_INPUT_WAIT = 5
@@ -555,7 +580,7 @@ function Bluetooth:onSuspend()
     -- Synchronously: the Kobo suspends as soon as the Suspend handlers
     -- return, so a background run would still be going when it does. off.sh
     -- only kills two daemons and blocks the radio; it takes about a second.
-    os.execute("/bin/sh " .. PLUGIN_DIR .. "off.sh >/dev/null 2>&1")
+    os.execute("/bin/sh " .. shellQuote(PLUGIN_DIR) .. "off.sh >/dev/null 2>&1")
     logger.info("Bluetooth: turned off for suspend")
 end
 
@@ -581,10 +606,6 @@ function Bluetooth:onFlushSettings()
     end
 end
 
-function Bluetooth:getScriptPath(script)
-    return script
-end
-
 -- Run a script off the UI thread, showing a dismissable message while it works.
 --
 -- Returns Trapper's own pair: completed, output. `completed` is false when the
@@ -596,8 +617,9 @@ end
 -- result:match(). Trapper:wrap swallows that error into a pcall, so the
 -- symptom is nothing happening rather than a traceback.
 --
--- `script` may carry arguments; it is appended to the interpreter and plugin
--- directory as-is. `message` is what Trapper shows while it works -- a string
+-- `script` is a file name in the plugin directory, and may carry arguments;
+-- it is appended to the quoted directory as-is, so the shell reads the two as
+-- one word. `message` is what Trapper shows while it works -- a string
 -- gets a dismissable widget. Background runs pass BACKGROUND() instead: see
 -- there.
 --
@@ -615,7 +637,7 @@ end
 --     the rest of the script.
 -- stderr is left alone and still goes to crash.log.
 function Bluetooth:executeScript(script, message)
-    local command = "out=$(/bin/sh " .. PLUGIN_DIR .. script .. "); printf '%s\\n' \"$out\""
+    local command = "out=$(/bin/sh " .. shellQuote(PLUGIN_DIR) .. script .. "); printf '%s\\n' \"$out\""
     return Trapper:dismissablePopen(command, message)
 end
 
@@ -624,7 +646,7 @@ function Bluetooth:onBluetoothOn()
         return Trapper:wrap(function() self:onBluetoothOn() end)
     end
 
-    local script = self:getScriptPath("on.sh")
+    local script = "on.sh"
     startingBluetooth()
     local completed, result = self:executeScript(script, _("Starting Bluetooth…"))
     if completed then
@@ -658,7 +680,7 @@ function Bluetooth:onBluetoothOff()
         return Trapper:wrap(function() self:onBluetoothOff() end)
     end
 
-    local script = self:getScriptPath("off.sh")
+    local script = "off.sh"
 
     -- The uhid device goes away with the stack, so drop our handle first
     -- rather than leaving it open against a device that no longer exists.
@@ -1062,7 +1084,7 @@ function Bluetooth:onDeviceRepair(name)
         self:popup(_("Bluetooth is off. Please turn it on before connecting to a device."))
         return
     end
-    local script = self:getScriptPath("repair.sh")
+    local script = "repair.sh"
     if name then
         script = script .. " " .. shellQuote(name)
     end
@@ -1108,7 +1130,7 @@ function Bluetooth:onConnectToDevice()
         return
     end
 
-    local script = self:getScriptPath("connect.sh")
+    local script = "connect.sh"
     beginManual()
     local completed, result = self:executeScript(script, _("Connecting to the remote…"))
     if completed then
