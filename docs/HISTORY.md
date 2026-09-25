@@ -34,6 +34,7 @@ Don't re-try these.
 | Fixed `sleep`s in `on.sh` and `repair.sh` | Too short on a slow attach (the retry then killed an attach about to succeed), wasted time otherwise. Poll for the state instead |
 | Retrying a failed Free3 pair within seconds, or with a power cycle in between | The Free3 ignores pages for ~45 s after being dropped. Retrying sooner changes nothing; power cycles could miss its own page. Retry for long enough instead |
 | `l2ping` or `hcitool name` as a test that the Free3 is really there | The Free3 answers neither over a working link, and `l2ping` exits 0 at 100% loss |
+| Running Bluetooth with Wi-Fi off by powering the chip for it (#42) | By hand it worked: with Wi-Fi off and `8821cs` unloaded, KOReader's `ntx_io.lua 208 1` then `on.sh` connected the Free3, and it turned pages. Built into the plugin (power through the FFI before each start, restart on every Wi-Fi change), the Free3 did not turn pages with Wi-Fi off, and the info popup showed the controller not answering. Reverted rather than debugged: needing Wi-Fi on is acceptable |
 
 ---
 

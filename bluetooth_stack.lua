@@ -108,16 +108,21 @@ function Stack.isBluetoothOn()
     return true
 end
 
-function Stack.isWifiEnabled()
-    local handle = io.popen("iwconfig")
-    if not handle then
-        return false
+-- Whether Wi-Fi is on, which Bluetooth needs (#42): the two share the Sage's
+-- RTL8821CS, and KOReader's Wi-Fi off cuts the whole chip's power. On, not
+-- connected -- only the power matters.
+--
+-- Asks KOReader, which on a Kobo checks that the Wi-Fi interface exists (it
+-- does only while the Wi-Fi driver is loaded). This used to grep iwconfig for
+-- "ESSID", which also appears as "ESSID:off/any" on an interface that is up
+-- but not associated, and says nothing when there is none.
+function Stack.isWifiOn()
+    local ok, NetworkMgr = pcall(require, "ui/network/manager")
+    if not ok or not NetworkMgr or not NetworkMgr.isWifiOn then
+        return true  -- can't tell; let on.sh try
     end
-    local result = handle:read("*a")
-    handle:close()
-
-    -- Check if Wi-Fi is enabled by looking for 'ESSID'
-    return result:match("ESSID") ~= nil
+    local ok_on, on = pcall(NetworkMgr.isWifiOn, NetworkMgr)
+    return not ok_on or on and true or false
 end
 
 return Stack

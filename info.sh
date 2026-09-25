@@ -21,10 +21,9 @@ if [ -n "$version" ]; then
             print "Address: " a
         }'
 elif [ -e /sys/class/bluetooth/hci0 ]; then
-    # Attached but silent: typically the chip lost its power or was reset
-    # under it -- turning Wi-Fi on or off does both -- and the plugin's watcher
-    # restarts Bluetooth within a few seconds.
-    echo "Controller: not answering (restarting after a Wi-Fi change?)"
+    # Attached but silent: typically the chip lost its power, which turning
+    # Wi-Fi off does -- Bluetooth shares the chip, and needs Wi-Fi on (#42).
+    echo "Controller: not answering (is Wi-Fi on?)"
 else
     echo "Controller: unavailable while Bluetooth is off"
 fi

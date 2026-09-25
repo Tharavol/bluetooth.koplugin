@@ -21,6 +21,8 @@ itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetoo
 | BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; the Wi-Fi module is `8821cs`; `hciconfig hci0 version` reports `Manufacturer: Realtek Semiconductor Corporation (93)`, HCI/LMP 4.1, bus UART. `rtk_hciattach`'s log prints `IC: RTL8821CS` — but only once it exits: it buffers its output, so `/var/log/rtk_hciattach.log` is **empty while it runs** |
 | BT is UART-attached on `/dev/ttyS1`, H5 (three-wire) protocol | Nickel runs `/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5` |
 | WiFi driver module is `8821cs` | `/sys/module/8821cs/parameters/rtw_btcoex_enable` exists. KOReader unloads it with Wi-Fi |
+| **Bluetooth needs Wi-Fi on** (#42) | KOReader's `disable-wifi.sh` runs `rmmod 8821cs`, then `ntx_io` ioctl 208 (`CM_WIFI_CTRL`) with 0, cutting the whole chip's power — the Sage has no `sdio_wifi_pwr` module. The Free3 dropped the moment Wi-Fi went off, while `hci0` still read `UP RUNNING` and its input device stayed listed: nothing on the Kobo side noticed (2026-09-25) |
+| **Turning Wi-Fi on resets Bluetooth too** | `enable-wifi.sh` powers the chip (208, 1) and loads `8821cs`; the Free3 dropped 8 s after `Kobo Wi-Fi: enabling Wi-Fi` |
 | Chip reset line exists in devicetree as node `bt` | `/sys/firmware/devicetree/base/bt/bt_rst_n` |
 | Power/reset is gated through rfkill | `/sys/devices/platform/bt/rfkill/rfkill0/state` — write `1` to unblock, `0` to block |
 | `uhid` is **built into the kernel**, not a module | `zcat /proc/config.gz \| grep CONFIG_UHID` → `CONFIG_UHID=y` (so `lsmod` shows nothing; this is expected, not a fault) |
@@ -362,7 +364,12 @@ back to a blocking `io.popen`, so a missed wrap shows up only as a freeze.
 **Startup.** *Turn on Bluetooth at startup* (on unless unticked) runs `on.sh`
 in the background 3 s after KOReader starts, once per process, unless
 Bluetooth is already up. The watcher connects afterwards. It isn't gated on
-Wi-Fi, unlike the Toggle entry (#42).
+Wi-Fi, unlike the Toggle entry.
+
+**Wi-Fi (#42).** *Toggle Bluetooth* turning it on requires Wi-Fi to be on,
+since Wi-Fi powers the chip (§1). "On" is KOReader's own test,
+`NetworkMgr:isWifiOn()` — on a Kobo, whether the Wi-Fi interface exists. It
+used to grep `iwconfig` for `ESSID`, which matches `ESSID:off/any` too.
 
 **Suspend and resume (#29).** Left on across a suspend, the serial link to the
 chip died: `hci0` DOWN, `retransmitting` in `dmesg`, `org.bluez.Error.Busy`
@@ -430,8 +437,11 @@ cannot persist bonds at all. Check `df -h /` first.
 7. **The four `[General]` lines of `main.conf` are gone**, destroyed by
    `sed -i` on a full disk. Everything has worked on BlueZ defaults since. If a
    pristine copy turns up in a firmware package, worth diffing.
-8. The v1.6.0 and v1.7.0 milestones hold the rest: installing on other
-   models, packaging, the Wi-Fi gate (#42), and tests in CI.
+8. **Turning Wi-Fi off or on drops the remote** (§1), and nothing on the Kobo
+   side reports it, so the plugin doesn't react either. Turn Bluetooth off
+   and on after changing Wi-Fi. Running Bluetooth with Wi-Fi off was tried and
+   dropped: see [HISTORY](HISTORY.md#dead-ends).
+9. The v1.7.0 milestone holds the tests in CI.
 
 ---
 

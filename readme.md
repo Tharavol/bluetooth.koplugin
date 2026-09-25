@@ -120,7 +120,9 @@ Everything else lives under **Bluetooth** on the settings tab, directly below
 
 - **Toggle Bluetooth** — runs `on.sh`, then connects to the first paired remote
   that answers. It takes several seconds and always tears the stack down first,
-  so it drops any existing connection. Wi-Fi has to be on for this entry (#42).
+  so it drops any existing connection. Wi-Fi has to be on: Bluetooth shares
+  the Sage's chip with Wi-Fi, and turning Wi-Fi off powers the whole chip
+  down.
 - **Reconnect to Device** — `connect.sh`. Tries each paired remote in order and
   verifies the bond. A remote whose link came up without a bond is handed over
   to a re-pair automatically.
@@ -200,6 +202,10 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
   profiles. The plugin therefore dials the remotes itself, in the background.
   It deliberately won't re-pair unattended, so a bond the remote has
   *forgotten* still needs a menu tap.
+- **Bluetooth needs Wi-Fi on.** They share the Sage's chip, and KOReader's
+  Wi-Fi off powers the whole chip down. Turning Wi-Fi off, or back on, drops
+  the remote without anything noticing; *Toggle Bluetooth* off and on
+  afterwards. Wi-Fi only has to be on, not connected.
 - **Re-pairing a connected Free3 takes about a minute.** Dropped by the
   re-pair, it ignores the Kobo for ~45 s before it will pair again. RePair
   waits it out, which is also why it leaves a working Free3 alone.

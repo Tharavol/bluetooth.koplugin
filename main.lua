@@ -137,8 +137,9 @@ function Bluetooth:addToMainMenu(menu_items)
                     return Stack.isBluetoothOn()
                 end,
                 callback = function()
-                    if not Stack.isWifiEnabled() then
-                        self:popup(_("Please turn on Wi-Fi to continue."))
+                    if not Stack.isWifiOn() then
+                        self:popup(_("Please turn on Wi-Fi first. Bluetooth shares its chip with Wi-Fi, " ..
+                                     "which powers it."))
                     elseif Stack.isBluetoothOn() then
                         self:onBluetoothOff()
                     else
