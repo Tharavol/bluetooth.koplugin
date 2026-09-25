@@ -1189,9 +1189,14 @@ end
 function Bluetooth:connectedMessage(result)
     local name = result:match("Remote: ([^\n]+)")
     if name and result:match("Already connected") then
-        -- repair.sh found nothing to repair and left the bond alone.
+        -- repair.sh found nothing to repair and left the bond alone. The wait
+        -- is BlueZ's: a remote switched off without disconnecting is still
+        -- listed as connected until its link times out, 20 s on the Sage.
+        -- Nothing tells the two apart sooner -- the Free3 answers neither
+        -- l2ping nor hcitool name.
         return T(_("%1 is already connected and paired, so it was left as it is. " ..
-                   "To pair it again anyway, turn it off, choose RePair, then turn it on."), name)
+                   "To pair it again anyway, turn it off, wait 20 seconds, choose RePair, then turn it on."),
+                 name)
     end
     if name then
         return T(_("Connected to %1."), name)
