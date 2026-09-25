@@ -6,6 +6,62 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.6.0 — 2026-09-25 — Installs anywhere, ships clean
+
+The plugin now installs from a release zip into any KOReader plugins folder,
+shows up properly in KOReader's plugin manager, and ships only what runs on the
+device. Why Bluetooth needs Wi-Fi is now known and explained. Confirmed on the
+Sage (KOReader v2026.03).
+
+**Upgrading:** unzip `bluetooth.koplugin.zip` from the release into KOReader's
+`plugins` folder, over the old one. Keep a copy of `device.conf` first if you
+edited it. `uhid/` and `device.lua.patch` from older installs can be deleted.
+
+### Added
+
+- **A release zip**, `bluetooth.koplugin.zip`, built by CI when a release is
+  published: the Lua and shell files, `device.conf`, `LICENSE`, `DISCLAIMER`
+  and the readme, in a folder named exactly `bluetooth.koplugin`. GitHub's
+  *Download ZIP* names the folder `bluetooth.koplugin-main`, which KOReader
+  silently never loads. (#43)
+- **`_meta.lua`**, so KOReader's plugin manager shows a name and description,
+  and can disable the plugin and enable it again. Disabling it from the manager
+  used to do nothing, since the plugin's name didn't match its folder. (#41)
+
+### Changed
+
+- **Any install location works.** The plugin finds its own folder instead of
+  assuming `/mnt/onboard/.adds/koreader/plugins/`. Anywhere else, every script
+  used to fail with "could not run". (#36, #39)
+- **Toggle Bluetooth explains its Wi-Fi requirement.** Bluetooth shares the
+  Sage's chip with Wi-Fi, and KOReader's Wi-Fi off powers the whole chip down,
+  so the requirement is real. The check now asks KOReader whether Wi-Fi is on,
+  instead of grepping `iwconfig`. (#42)
+- **Bluetooth info says why** it can't read the controller or the chip, rather
+  than claiming Bluetooth is off.
+
+### Removed
+
+- `uhid/` (a kernel module built for a Kobo Libra 2) and `device.lua.patch`,
+  inherited from upstream and never used on the Sage, where uhid is built into
+  the kernel. (#43)
+
+### Internal
+
+- `main.lua` is split into `bluetooth_config`, `bluetooth_buttons`,
+  `bluetooth_stack`, `bluetooth_input` and `bluetooth_watcher`; `main.lua`
+  keeps the plugin class, the menu and the handlers. Behaviour is unchanged,
+  checked with a harness of 26 scenarios that gave the same transcript before
+  and after. (#56)
+- Lint checks every Lua file.
+
+### Documented
+
+- HANDOFF and the readme record that turning Wi-Fi off, or back on, drops the
+  remote with nothing noticing. HISTORY records the attempt to run Bluetooth
+  with Wi-Fi off: it worked by hand but not through the plugin, and was
+  dropped.
+
 ## v1.5.0 — 2026-09-25 — Survives a real night
 
 Bluetooth now goes off when the Kobo sleeps and comes back when it wakes, and
