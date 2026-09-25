@@ -105,6 +105,21 @@ local bt_watch_scheduled = false
 -- and can only succeed if the remote happens to be advertising right then.
 local BT_RECONNECT_INTERVAL = 60
 
+-- For this long after Bluetooth comes up -- at startup, on waking, after a
+-- restart or a manual toggle -- attempts come every BT_RECONNECT_FAST seconds
+-- instead. That is when a remote is most likely to be switched on at any
+-- moment: on the Sage the Free3 was off after a night's sleep, missed the
+-- attempt made right after waking, and waited another minute.
+local BT_RECONNECT_FAST_FOR = 120
+local BT_RECONNECT_FAST = 10
+local bt_fast_until = 0
+
+-- An attempt against remotes that don't answer can take longer than
+-- BT_RECONNECT_FAST, so attempts must not overlap. A start time rather than a
+-- flag, so a run that never reports back (an error, a hung script) holds the
+-- next one off for BT_RECONNECT_INTERVAL at most, not for the whole session.
+local bt_reconnect_running_since = nil
+
 -- Seconds between background restarts of the whole stack when the controller
 -- is found dead. A restart takes the radio down for several seconds, so this
 -- is deliberately slow: it is a recovery, not a retry loop.
@@ -115,11 +130,8 @@ local bt_last_restart = 0
 -- back -- and only then.
 local bt_off_for_suspend = false
 
--- When the last unattended attempt started. A timestamp rather than an
--- in-progress flag on purpose: a flag left true by an error would disable
--- reconnection for the rest of the session, while a stale timestamp costs at
--- most one extra attempt. Overlap isn't reachable in practice -- connect.sh's
--- bluetoothctl calls are capped at 5 s each, well inside the interval.
+-- When the last unattended attempt started, for the rate limit. Overlap is
+-- prevented separately, by bt_reconnect_running_since.
 local bt_last_reconnect = 0
 
 -- Global KOReader setting behind "Turn on Bluetooth at startup". Unset means
@@ -150,8 +162,10 @@ end
 
 local function startedBluetooth()
     bt_starting_until = 0
-    -- Let the watcher's next tick try the remotes straight away.
+    -- Let the watcher's next tick try the remotes straight away, and keep
+    -- trying often for a while: see BT_RECONNECT_FAST_FOR.
     bt_last_reconnect = 0
+    bt_fast_until = os.time() + BT_RECONNECT_FAST_FOR
 end
 
 -- The "widget" for a run nobody should see or be able to cancel. Trapper
@@ -852,10 +866,15 @@ end
 -- off, they would otherwise fill crash.log at one a minute.
 function Bluetooth:tryReconnect(names, quiet)
     local now = os.time()
-    if now - bt_last_reconnect < BT_RECONNECT_INTERVAL then
+    if bt_reconnect_running_since and now - bt_reconnect_running_since < BT_RECONNECT_INTERVAL then
+        return  -- the previous attempt is still going
+    end
+    local interval = now < bt_fast_until and BT_RECONNECT_FAST or BT_RECONNECT_INTERVAL
+    if now - bt_last_reconnect < interval then
         return
     end
     bt_last_reconnect = now
+    bt_reconnect_running_since = now
 
     -- The tick is a plain timer callback rather than a coroutine, so this needs
     -- its own wrap. It runs in the BACKGROUND: nothing on screen, and nothing a
@@ -866,6 +885,7 @@ function Bluetooth:tryReconnect(names, quiet)
             script = script .. " " .. shellQuote(table.concat(names, "|"))
         end
         local completed, result = self:executeScript(script, BACKGROUND())
+        bt_reconnect_running_since = nil
 
         -- Every outcome gets a line. Logging only the two recognised ones left
         -- silence meaning both "never ran" and "ran and said something else",

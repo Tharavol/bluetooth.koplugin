@@ -422,6 +422,14 @@ dismissed by any tap. `false` is too, and swallows the tap. On the Sage the
 reconnect and the startup run were both logged as `interrupted` in the same
 second, with their scripts left running unsupervised (#30).
 
+For **two minutes after Bluetooth comes up**, at startup, on waking, after a
+restart or a toggle, attempts come every 10 s instead of every 60 s. That is
+when a remote is most likely to be switched on: after a night's sleep the
+Free3 was off, missed the attempt made right after waking, and waited a
+further minute. Since an attempt against unreachable remotes can take more
+than 10 s, attempts are also kept from overlapping (`bt_reconnect_running_since`,
+itself a timestamp so a run that never returns can't block the next for good).
+
 The rate limit is a **timestamp, not an in-progress flag** — a flag left `true`
 by an error would disable reconnection for the whole session, where a stale
 timestamp costs at most one extra attempt.
