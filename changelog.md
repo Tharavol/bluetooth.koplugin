@@ -6,6 +6,33 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.7.0 — 2026-09-25 — Regression tests in CI
+
+No change on the device. The simulations used to check each fix during
+v1.3.0–v1.6.0, which lived only in working sessions, are now a test suite that
+runs on every push.
+
+### Added
+
+- **`tests/`**, run with `sh tests/run.sh` (needs `luajit` and `busybox`). Two
+  suites, each printing a transcript that must match `tests/expected/`:
+  - **Lua**, against a fake KOReader: `device.conf` parsing, replays of real
+    `evtest` captures through press pairing, invert and the third button,
+    startup, resume, RePair and Reconnect outcomes, the preference for the
+    Free3, the fd guard, a dead controller, the menu, and the Wi-Fi
+    requirement.
+  - **Shell**, under busybox against a fake Kobo: `lib.sh`'s exact name
+    matching and bond wait, `connect.sh`'s outcomes and its hand-over to
+    `repair.sh`, `repair.sh`'s scan rounds, retries and give-ups (including a
+    Free3 that ignores pages for 45 s), `on.sh`'s bring-up and retry, `off.sh`
+    and `info.sh`.
+  `sh tests/run.sh --update` records a change after its diff has been read.
+  Breaking press pairing or shortening RePair's window both fail the suite.
+  (#57)
+- **A Tests workflow** runs the suite on Ubuntu with busybox's applets first on
+  `PATH`, so the scripts meet the same tools as on the Kobo. Lint covers the
+  test scripts.
+
 ## v1.6.0 — 2026-09-25 — Installs anywhere, ships clean
 
 The plugin now installs from a release zip into any KOReader plugins folder,
