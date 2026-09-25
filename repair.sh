@@ -23,14 +23,25 @@ for bluetooth_address in $(device_macs "$name"); do
   bltctl remove "$bluetooth_address" 2>&1 | diag
 done
 
-# Scan for the remote. bluetoothctl keeps discovery running for as long as it
-# runs, so this is a 5 s scan that ends when timeout kills it -- measured on
-# the Sage at the full 5 s. Devices it found stay known to bluetoothd after
-# discovery stops, which is all the pair below needs. A sleep after it used
-# to add 2 s with discovery already off.
-bltctl scan on 2>&1 | diag
-
-bluetooth_address=$(device_macs "$name" | head -n 1)
+# Scan for the remote, in 4 s rounds for up to 20 s, stopping at the first
+# round that finds it. bluetoothctl keeps discovery running for as long as it
+# runs, so each round ends when timeout kills it; devices it found stay known
+# to bluetoothd after discovery stops, which is all the pair below needs.
+#
+# One 5 s scan was too short for a Free3 that was connected when RePair
+# started: dropped by the power cycle above, it only starts advertising (its
+# light blinking) a few seconds later. On the Sage the scan had ended by then,
+# and a second RePair, with the light already blinking, found it at once.
+bluetooth_address=
+round=0
+while [ "$round" -lt 5 ]; do
+    bltctl_for 4 scan on 2>&1 | diag
+    bluetooth_address=$(device_macs "$name" | head -n 1)
+    if [ -n "$bluetooth_address" ]; then
+        break
+    fi
+    round=$((round + 1))
+done
 if [ -z "$bluetooth_address" ]; then
     echo "$name was not found while scanning. Make sure it is on and advertising"
     echo "(on the Kobo Remote, press a button), then try RePair again."
