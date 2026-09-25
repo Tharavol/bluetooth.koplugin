@@ -13,7 +13,7 @@ jobs:
       # ash, whatever the shebang says. .shellcheckrc lets -x follow the
       # sourced device.conf and lib.sh.
       - run: shellcheck --version
-      - run: shellcheck -x -s sh ./*.sh
+      - run: shellcheck -x -s sh ./*.sh tests/run.sh tests/sh/*.sh
 
   luacheck:
     runs-on: ubuntu-latest

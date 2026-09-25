@@ -445,7 +445,21 @@ cannot persist bonds at all. Check `df -h /` first.
 
 ---
 
-## 6. Useful commands
+## 6. Tests and useful commands
+
+`tests/run.sh` checks transcripts against `tests/expected/` (see the readme).
+`tests/lua/env.lua` is a fake KOReader — clock and timers, sysfs and `/proc`,
+input devices, Trapper, settings, the UI — and `tests/lua/scenarios.lua`
+drives the plugin through it, including replays of the `evtest` captures in
+`tests/fixtures/`. `tests/sh/stubs.sh` is a fake Kobo for the scripts:
+`bluetoothctl`, `hciconfig`, the daemons and the clock as shell functions,
+with the device's state in files. `tests/sh/scenarios.sh` runs test copies of
+the scripts, changed only to point absolute paths into a fake root, to run
+`on.sh`'s background launches in the foreground, and to hand over from
+`connect.sh` to `repair.sh` in the same shell. The fakes encode what was
+measured on the Sage — a 5 s page timeout, a killed `rtk_hciattach` taking
+`hci0` with it, a buffered attach log — and are no better than that.
+
 
 ```sh
 # stack health, top to bottom

@@ -1,0 +1,289 @@
+
+=== names: false
+  Free3-P / Kobo Remote
+
+=== names: BT_DEVICE_NAMES="Free3-P|Kobo Remote"
+  Free3-P / Kobo Remote
+
+=== names: # BT_DEVICE_NAME="Old Remote" / BT_DEVICE_NAME="Kobo Remote"
+  Kobo Remote
+
+=== names: BT_DEVICE_NAMES='A|B' / BT_DEVICE_NAMES="C"
+  C
+
+=== replay free3.cap
+[   0] HOOK registered
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel -1
+
+=== replay kobo.cap
+[   0] HOOK registered
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel -1
+
+=== replay kobo_nosyn_full.cap
+[   0] HOOK registered
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel -1
+
+=== replay hold3s.cap
+[   0] HOOK registered
+[   0] EVENT GotoViewRel 1
+
+=== replay hold2s.cap
+[   0] HOOK registered
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel 1
+
+=== invert and third button
+[   0] HOOK registered
+[   0] EVENT GotoViewRel 1
+[   0] EVENT GotoViewRel -1
+  inverted: true
+[   0] EVENT GotoViewRel -1
+[   0] EVENT GotoViewRel 1
+  Third button (Free3): Nothing
+  picker for third / Third button (Free3): 1 actions
+[   0] DISPATCH toggle_bookmark
+[   0] SETTINGS flushed
+
+=== startup
+[   0] HOOK registered
+[   3] RUN(bg) on.sh 
+[  11] DONE on.sh
+[  11] INFO Bluetooth: turned on at startup
+[  15] RUN(bg) connect.sh --no-repair
+[  20] DONE connect.sh
+[  20] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[  25] RUN(bg) connect.sh --no-repair
+[  28] DONE connect.sh
+[  28] INFO Bluetooth: reconnected the remote unattended (Free3-P)
+[  30] OPEN /dev/input/event3 fd 10
+[  30] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+
+=== startup: option off
+[   0] HOOK registered
+
+=== startup: already on, Kobo Remote connected
+[   0] HOOK registered
+[   5] OPEN /dev/input/event4 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event4
+[   5] RUN(bg) connect.sh --no-repair 'Free3-P'
+[  15] DONE connect.sh
+[  65] RUN(bg) connect.sh --no-repair 'Free3-P'
+
+=== resume, repair, connect
+[   0] HOOK registered
+[   0] INFO Bluetooth: suspending; bluetooth on, remotes present: none, open: none
+[   0] EXEC '/kodir/'off.sh >/dev/null 2>&1
+[   0] INFO Bluetooth: turned off for suspend
+[   0] INFO Bluetooth: resumed; bluetooth on, remotes present: none, open: none
+[   1] RUN(bg) on.sh 
+[   9] DONE on.sh
+[   9] INFO Bluetooth: turned on on resume
+[  10] RUN(bg) connect.sh --no-repair
+[  22] DONE connect.sh
+[  22] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[  25] RUN(bg) connect.sh --no-repair
+[  37] DONE connect.sh
+[  37] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[  37] RUN     repair.sh 'Free3-P'
+[  37] SHOW Pairing with Free3-P… Put it in pairing mode.
+[  77] DONE repair.sh
+[  77] POPUP Pairing Free3-P did not produce a working bond.
+[  80] RUN(bg) connect.sh --no-repair
+[  92] DONE connect.sh
+[  92] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[  95] RUN(bg) connect.sh --no-repair
+[ 107] DONE connect.sh
+[ 107] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[ 110] RUN(bg) connect.sh --no-repair
+[ 122] DONE connect.sh
+[ 122] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[ 125] RUN(bg) connect.sh --no-repair
+[ 137] DONE connect.sh
+[ 137] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+[ 150] RUN     connect.sh 
+[ 150] SHOW Connecting to the remote…
+[ 150] OPEN /dev/input/event4 fd 10
+[ 150] INFO Bluetooth: watcher opened the remote at /dev/input/event4
+[ 150] OPEN /dev/input/event5 fd 11
+[ 150] INFO Bluetooth: watcher opened the remote at /dev/input/event5
+[ 162] DONE connect.sh
+[ 162] CLOSE /dev/input/event4 fd 10
+[ 162] CLOSE /dev/input/event5 fd 11
+[ 162] OPEN /dev/input/event4 fd 12
+[ 162] OPEN /dev/input/event5 fd 13
+[ 162] POPUP Connected to Kobo Remote.
+[ 185] RUN(bg) connect.sh --no-repair 'Free3-P'
+[ 197] DONE connect.sh
+[ 245] RUN(bg) connect.sh --no-repair 'Free3-P'
+[ 257] DONE connect.sh
+[ 305] RUN(bg) connect.sh --no-repair 'Free3-P'
+[ 317] DONE connect.sh
+
+=== repair: success
+[   0] HOOK registered
+[   1] RUN     repair.sh 'Free3-P'
+[   1] SHOW Pairing with Free3-P… Put it in pairing mode.
+[   5] OPEN /dev/input/event3 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+[  31] DONE repair.sh
+[  31] CLOSE /dev/input/event3 fd 10
+[  31] OPEN /dev/input/event3 fd 11
+[  31] POPUP Connected to Free3-P.
+
+=== repair: already
+[   0] HOOK registered
+[   1] RUN     repair.sh 'Free3-P'
+[   1] SHOW Pairing with Free3-P… Put it in pairing mode.
+[   5] OPEN /dev/input/event3 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+[  31] DONE repair.sh
+[  31] CLOSE /dev/input/event3 fd 10
+[  31] OPEN /dev/input/event3 fd 11
+[  31] POPUP Free3-P is already connected and paired, so it was left as it is. To pair it again anyway, turn it off, wait 20 seconds, choose RePair, then turn it on.
+
+=== repair: failure
+[   0] HOOK registered
+[   1] RUN     repair.sh 'Free3-P'
+[   1] SHOW Pairing with Free3-P… Put it in pairing mode.
+[   5] OPEN /dev/input/event3 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+[  31] DONE repair.sh
+[  31] POPUP Pairing Free3-P did not produce a working bond. | Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+
+=== repair: no node
+[   0] HOOK registered
+[   1] RUN     repair.sh 'Free3-P'
+[   1] SHOW Pairing with Free3-P… Put it in pairing mode.
+[  31] DONE repair.sh
+[  36] POPUP The remote is connected and listed as /dev/input/event3, but no device node for it exists.
+
+=== preference: Kobo Remote only
+[   0] HOOK registered
+[   5] OPEN /dev/input/event4 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event4
+[   5] RUN(bg) connect.sh --no-repair 'Free3-P'
+[  15] DONE connect.sh
+[  15] DBG  Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+
+=== preference: Free3 only
+[   0] HOOK registered
+[   5] OPEN /dev/input/event3 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+
+=== preference: none
+[   0] HOOK registered
+[   5] RUN(bg) connect.sh --no-repair
+[  15] DONE connect.sh
+[  15] INFO Bluetooth: unattended reconnect did not take: No remote answered. Press a button on it and try again. 
+
+=== fd guard
+[   0] HOOK registered
+[   5] OPEN /dev/input/event3 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+[   5] OPEN /dev/input/event4 fd 11
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event4
+[  10] INFO Bluetooth: watcher closing /dev/input/event3; it is no longer listed
+[  10] INFO Bluetooth: /dev/input/event3 was already closed by KOReader; forgetting it
+  entry for event3 left: nil
+  event4 still open: 11
+
+=== dead controller
+[   0] HOOK registered
+[   5] RUN(bg) connect.sh --no-repair
+[   7] DONE connect.sh
+[   7] INFO Bluetooth: the controller is not responding; restarting Bluetooth
+[   7] RUN(bg) on.sh 
+[  15] DONE on.sh
+[  15] INFO Bluetooth: turned on after the controller stopped responding
+[  15] RUN(bg) connect.sh --no-repair
+[  17] DONE connect.sh
+[  25] RUN(bg) connect.sh --no-repair
+[  27] DONE connect.sh
+[  35] RUN(bg) connect.sh --no-repair
+[  37] DONE connect.sh
+[  45] RUN(bg) connect.sh --no-repair
+[  47] DONE connect.sh
+[  55] RUN(bg) connect.sh --no-repair
+[  57] DONE connect.sh
+[  65] RUN(bg) connect.sh --no-repair
+[  67] DONE connect.sh
+[  75] RUN(bg) connect.sh --no-repair
+[  77] DONE connect.sh
+[  85] RUN(bg) connect.sh --no-repair
+[  87] DONE connect.sh
+[  95] RUN(bg) connect.sh --no-repair
+[  97] DONE connect.sh
+[ 105] RUN(bg) connect.sh --no-repair
+[ 107] DONE connect.sh
+[ 115] RUN(bg) connect.sh --no-repair
+[ 117] DONE connect.sh
+[ 125] RUN(bg) connect.sh --no-repair
+[ 127] DONE connect.sh
+[ 185] RUN(bg) connect.sh --no-repair
+[ 187] DONE connect.sh
+
+=== menu
+[   0] HOOK registered
+  Toggle Bluetooth / Reconnect to Device / RePair & Reconnect to Device (long!) / Refresh Device Input / Invert page-turn buttons / Turn on Bluetooth at startup / Bluetooth info / Third button (Free3): Nothing
+  enabled (off): false
+[   0] RUN     on.sh 
+[   0] SHOW Starting Bluetooth…
+[   8] DONE on.sh
+[   8] RUN     connect.sh 
+[   8] SHOW Connecting to the remote…
+[  10] OPEN /dev/input/event3 fd 10
+[  10] INFO Bluetooth: watcher opened the remote at /dev/input/event3
+[  12] DONE connect.sh
+[  12] CLOSE /dev/input/event3 fd 10
+[  12] OPEN /dev/input/event3 fd 11
+[  12] POPUP Connected to Free3-P.
+  checked: true
+[  20] CLOSE /dev/input/event3 fd 11
+[  20] OPEN /dev/input/event3 fd 12
+[  20] POPUP Bluetooth device at /dev/input/event3 is now open.
+[  22] RUN     info.sh 
+[  22] SHOW Reading Bluetooth info…
+[  23] DONE info.sh
+[  23] POPUP Device: Kobo Sage (Kobo_cadmus) | Bluetooth: on | Controller: Realtek | BlueZ: 5.63
+  startup: false
+  startup: true
+  startup: false
+[  24] CLOSE /dev/input/event3 fd 12
+[  24] RUN     off.sh 
+[  24] SHOW Turning Bluetooth off…
+[  25] DONE off.sh
+[  25] POPUP Bluetooth turned off.
+  checked: false
+
+=== suspend while off, menu order
+[   0] HOOK registered
+[   0] INFO Bluetooth: suspending; bluetooth off, remotes present: none, open: none
+[   0] INFO Bluetooth: resumed; bluetooth off, remotes present: none, open: none
+  order: network,bluetooth,screen
+
+=== wifi off: toggle refuses
+[   0] HOOK registered
+[   0] POPUP Please turn on Wi-Fi first. Bluetooth shares its chip with Wi-Fi, which powers it.
+
+=== wifi changes while connected: no reaction
+[   0] HOOK registered
+[   5] OPEN /dev/input/event3 fd 10
+[   5] INFO Bluetooth: watcher opened the remote at /dev/input/event3

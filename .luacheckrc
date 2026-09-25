@@ -10,3 +10,7 @@ ignore = { "213/_.*" }
 
 -- KOReader's global settings object.
 read_globals = { "G_reader_settings" }
+
+-- The test harness's fake KOReader replaces the clock, the filesystem and the
+-- settings object on purpose.
+files["tests/lua/env.lua"] = { globals = { "G_reader_settings", "os", "io" } }

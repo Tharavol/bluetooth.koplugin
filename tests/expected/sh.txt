@@ -1,0 +1,452 @@
+
+=== lib: exact names, shared prefixes
+--- probe.sh 
+  | names: Free3-P|Kobo Remote
+  | Free3-P: 54:60:14:FE:CA:8C 
+  | Kobo Remote: A4:3C:D7:91:B0:40 33:33:33:33:33:33 
+  exit 0
+
+=== lib: no device.conf
+--- probe.sh 
+  | names: Free3-P|Kobo Remote
+  | Free3-P: 
+  | Kobo Remote: 
+  exit 0
+
+=== lib: an old single-name device.conf, with a comment
+--- probe.sh 
+  | names: Kobo Remote
+  | Free3-P: 
+  | Kobo Remote: 
+  exit 0
+
+=== lib: wait_for_bond, a bond settling on the 7th check
+--- probe.sh 54:60:14:FE:CA:8C
+  | 5 tries: gave up at 4
+  | 10 tries: bonded at 8
+  exit 0
+
+=== connect: the Free3 answers
+--- connect.sh 
+  | Remote: Free3-P
+  | Connection successful
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Free3-P: trying 54:60:14:FE:CA:8C
+  ! [bluetooth] Attempting to connect to 54:60:14:FE:CA:8C
+  ! [bluetooth] Connection successful
+  exit 0
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl connect 54:60:14:FE:CA:8C
+
+=== connect: the Free3 is off, the Kobo Remote answers
+--- connect.sh 
+  | Remote: Kobo Remote
+  | Connection successful
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Free3-P: trying 54:60:14:FE:CA:8C
+  ! [bluetooth] Kobo Remote: trying A4:3C:D7:91:B0:40
+  ! [bluetooth] Attempting to connect to A4:3C:D7:91:B0:40
+  ! [bluetooth] Connection successful
+  exit 0
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl connect 54:60:14:FE:CA:8C
+  ~ [0] bluetoothctl connect A4:3C:D7:91:B0:40
+
+=== connect: the Kobo Remote lost its bond (battery change)
+--- connect.sh --no-repair
+  | Kobo Remote connected without a valid bond.
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Kobo Remote: trying A4:3C:D7:91:B0:40
+  exit 1
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl connect A4:3C:D7:91:B0:40
+--- connect.sh 
+  | Kobo Remote connected without a valid bond; re-pairing.
+  | Remote: Kobo Remote
+  | Connection successful
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Kobo Remote: trying A4:3C:D7:91:B0:40
+  ! [bluetooth] Changing power off succeeded
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Removing A4:3C:D7:91:B0:40
+  ! [bluetooth] Device has been removed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device A4:3C:D7:91:B0:40 Kobo Remote
+  ! [bluetooth] Attempting to pair with A4:3C:D7:91:B0:40
+  ! [bluetooth] Pairing successful
+  ! [bluetooth] Changing A4:3C:D7:91:B0:40 trust succeeded
+  ! [bluetooth] Attempting to connect to A4:3C:D7:91:B0:40
+  ! [bluetooth] Connection successful
+  exit 0
+  ~ [4] bluetoothctl power on
+  ~ [4] bluetoothctl connect A4:3C:D7:91:B0:40
+  ~ [8] bluetoothctl power off
+  ~ [8] bluetoothctl power on
+  ~ [8] bluetoothctl remove A4:3C:D7:91:B0:40
+  ~ [8] bluetoothctl scan (round 1)
+  ~ [12] bluetoothctl pair A4:3C:D7:91:B0:40
+  ~ [12] bluetoothctl trust A4:3C:D7:91:B0:40
+  ~ [12] bluetoothctl connect A4:3C:D7:91:B0:40
+
+=== connect: nothing paired
+--- connect.sh 
+  | No remote is paired yet. Pair one with RePair.
+  ! [bluetooth] Changing power on succeeded
+  exit 1
+  ~ [0] bluetoothctl power on
+
+=== connect: nothing answers
+--- connect.sh --no-repair
+  | No remote answered. Press a button on it and try again.
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Free3-P: trying 54:60:14:FE:CA:8C
+  ! [bluetooth] Kobo Remote: trying A4:3C:D7:91:B0:40
+  exit 1
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl connect 54:60:14:FE:CA:8C
+  ~ [0] bluetoothctl connect A4:3C:D7:91:B0:40
+
+=== connect: only the remotes asked for
+--- connect.sh --no-repair Free3-P
+  | No remote answered. Press a button on it and try again.
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Free3-P: trying 54:60:14:FE:CA:8C
+  exit 1
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl connect 54:60:14:FE:CA:8C
+
+=== connect: the controller is dead
+--- connect.sh --no-repair
+  | The Bluetooth controller is not responding. Toggle Bluetooth off and on.
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] hci0:	Type: Primary  Bus: UART
+  ! [bluetooth] 	DOWN
+  exit 1
+  ~ [0] bluetoothctl power on
+
+=== repair: already connected and working, left alone
+--- repair.sh Free3-P
+  | Remote: Free3-P
+  | Already connected
+  | Connection successful
+  ! [bluetooth] Free3-P is connected with a working bond; leaving it as it is
+  exit 0
+
+=== repair: connected and bonded but no input device, re-paired
+--- repair.sh Free3-P
+  | Remote: Free3-P
+  | Connection successful
+  ! [bluetooth] Changing power off succeeded
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Removing 54:60:14:FE:CA:8C
+  ! [bluetooth] Device has been removed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Pairing successful
+  ! [bluetooth] Changing 54:60:14:FE:CA:8C trust succeeded
+  ! [bluetooth] Attempting to connect to 54:60:14:FE:CA:8C
+  ! [bluetooth] Connection successful
+  exit 0
+  ~ [0] bluetoothctl power off
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl remove 54:60:14:FE:CA:8C
+  ~ [0] bluetoothctl scan (round 1)
+  ~ [4] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [4] bluetoothctl trust 54:60:14:FE:CA:8C
+  ~ [4] bluetoothctl connect 54:60:14:FE:CA:8C
+
+=== repair: a Free3 dropped by the power cycle (found at 14 s, answers at 45 s)
+--- repair.sh Free3-P
+  | Remote: Free3-P
+  | Connection successful
+  ! [bluetooth] Changing power off succeeded
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Removing 54:60:14:FE:CA:8C
+  ! [bluetooth] Device has been removed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 1 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 2 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 3 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Pairing successful
+  ! [bluetooth] Changing 54:60:14:FE:CA:8C trust succeeded
+  ! [bluetooth] Attempting to connect to 54:60:14:FE:CA:8C
+  ! [bluetooth] Connection successful
+  exit 0
+  ~ [0] bluetoothctl power off
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl remove 54:60:14:FE:CA:8C
+  ~ [0] bluetoothctl scan (round 1)
+  ~ [4] bluetoothctl scan (round 2)
+  ~ [8] bluetoothctl scan (round 3)
+  ~ [12] bluetoothctl scan (round 4)
+  ~ [16] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [23] bluetoothctl scan (round 5)
+  ~ [27] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [34] bluetoothctl scan (round 6)
+  ~ [38] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [45] bluetoothctl scan (round 7)
+  ~ [49] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [49] bluetoothctl trust 54:60:14:FE:CA:8C
+  ~ [49] bluetoothctl connect 54:60:14:FE:CA:8C
+
+=== repair: never found
+--- repair.sh Kobo Remote
+  | Kobo Remote was not found while scanning. Make sure it is on and advertising
+  | (on the Kobo Remote, press a button), then try RePair again.
+  ! [bluetooth] Changing power off succeeded
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  ! [bluetooth] Discovery started
+  exit 1
+  ~ [0] bluetoothctl power off
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl scan (round 1)
+  ~ [4] bluetoothctl scan (round 2)
+  ~ [8] bluetoothctl scan (round 3)
+  ~ [12] bluetoothctl scan (round 4)
+  ~ [16] bluetoothctl scan (round 5)
+  ~ [20] bluetoothctl scan (round 6)
+  ~ [24] bluetoothctl scan (round 7)
+  ~ [28] bluetoothctl scan (round 8)
+  ~ [32] bluetoothctl scan (round 9)
+  ~ [36] bluetoothctl scan (round 10)
+  ~ [40] bluetoothctl scan (round 11)
+  ~ [44] bluetoothctl scan (round 12)
+  ~ [48] bluetoothctl scan (round 13)
+  ~ [52] bluetoothctl scan (round 14)
+  ~ [56] bluetoothctl scan (round 15)
+  ~ [60] bluetoothctl scan (round 16)
+  ~ [64] bluetoothctl scan (round 17)
+  ~ [68] bluetoothctl scan (round 18)
+  ~ [72] bluetoothctl scan (round 19)
+  ~ [76] bluetoothctl scan (round 20)
+  ~ [80] bluetoothctl scan (round 21)
+  ~ [84] bluetoothctl scan (round 22)
+  ~ [88] bluetoothctl scan (round 23)
+
+=== repair: found but never answers
+--- repair.sh 
+  | Pairing Free3-P did not produce a working bond.
+  | Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  | 	Paired: no
+  | 	Connected: no
+  ! [bluetooth] Changing power off succeeded
+  ! [bluetooth] Changing power on succeeded
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 1 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 2 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 3 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 4 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 5 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 6 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 7 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Pair attempt 8 did not succeed
+  ! [bluetooth] Discovery started
+  ! [bluetooth] [NEW] Device 54:60:14:FE:CA:8C Free3-P
+  ! [bluetooth] Attempting to pair with 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to pair: org.bluez.Error.ConnectionAttemptFailed
+  ! [bluetooth] Changing 54:60:14:FE:CA:8C trust succeeded
+  ! [bluetooth] Attempting to connect to 54:60:14:FE:CA:8C
+  ! [bluetooth] Failed to connect: org.bluez.Error.Failed br-connection-page-timeout
+  ! [bluetooth] Device 54:60:14:FE:CA:8C (public)
+  ! [bluetooth] 	Paired: no
+  ! [bluetooth] 	Connected: no
+  exit 1
+  ~ [0] bluetoothctl power off
+  ~ [0] bluetoothctl power on
+  ~ [0] bluetoothctl scan (round 1)
+  ~ [4] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [11] bluetoothctl scan (round 2)
+  ~ [15] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [22] bluetoothctl scan (round 3)
+  ~ [26] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [33] bluetoothctl scan (round 4)
+  ~ [37] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [44] bluetoothctl scan (round 5)
+  ~ [48] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [55] bluetoothctl scan (round 6)
+  ~ [59] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [66] bluetoothctl scan (round 7)
+  ~ [70] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [77] bluetoothctl scan (round 8)
+  ~ [81] bluetoothctl pair 54:60:14:FE:CA:8C
+  ~ [88] bluetoothctl scan (round 9)
+  ~ [92] bluetoothctl trust 54:60:14:FE:CA:8C
+  ~ [92] bluetoothctl connect 54:60:14:FE:CA:8C
+
+=== on: from off
+--- on.sh 
+  | complete
+  exit 0
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] rtk_hciattach (attempt 1)
+  ~ [4] hciconfig hci0 up
+  ~ [4] bluetoothd
+
+=== on: restarting a running stack
+--- on.sh 
+  | complete
+  exit 0
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall bluetoothd
+  ~ [6] rtk_hciattach (attempt 1)
+  ~ [9] hciconfig hci0 up
+  ~ [9] bluetoothd
+
+=== on: a slow attach, inside the wait
+--- on.sh 
+  | complete
+  exit 0
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] rtk_hciattach (attempt 1)
+  ~ [9] hciconfig hci0 up
+  ~ [9] bluetoothd
+
+=== on: the first attach fails, the retry works
+--- on.sh 
+  | complete
+  ! [bluetooth] hci0 did not come up; retrying once
+  ! [bluetooth]   Can't get device info: No such device
+  ! [bluetooth] rtk_hciattach.log follows
+  ! [bluetooth]   RTK_BT: attempt 1
+  ! [bluetooth]   RTK_BT: Retransmission exhausts
+  exit 0
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] rtk_hciattach (attempt 1)
+  ~ [10] bluetoothd
+  ~ [14] killall rtk_hciattach
+  ~ [15] killall rtk_hciattach
+  ~ [15] killall bluetoothd
+  ~ [20] rtk_hciattach (attempt 2)
+  ~ [23] hciconfig hci0 up
+  ~ [23] bluetoothd
+
+=== on: both attaches fail
+--- on.sh 
+  | Error: hci0 did not come up - see crash.log
+  ! [bluetooth] hci0 did not come up; retrying once
+  ! [bluetooth]   Can't get device info: No such device
+  ! [bluetooth] rtk_hciattach.log follows
+  ! [bluetooth]   RTK_BT: attempt 1
+  ! [bluetooth]   RTK_BT: Retransmission exhausts
+  ! [bluetooth] hci0 did not come up after a retry
+  ! [bluetooth]   Can't get device info: No such device
+  ! [bluetooth] rtk_hciattach.log follows
+  ! [bluetooth]   RTK_BT: attempt 2
+  ! [bluetooth]   RTK_BT: Retransmission exhausts
+  exit 1
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] rtk_hciattach (attempt 1)
+  ~ [10] bluetoothd
+  ~ [14] killall rtk_hciattach
+  ~ [15] killall rtk_hciattach
+  ~ [15] killall bluetoothd
+  ~ [20] rtk_hciattach (attempt 2)
+  ~ [29] bluetoothd
+  ~ [33] killall rtk_hciattach
+
+=== off
+--- off.sh 
+  | off
+  exit 0
+  ~ [0] hciconfig hci0 down
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall bluetoothd
+
+=== info: Bluetooth and Wi-Fi on
+--- info.sh 
+  | Controller: Realtek Semiconductor Corporation (93)
+  | Bluetooth version: 4.1
+  | Bus: UART
+  | Address: 58:B0:D4:00:00:01
+  | Chip: RTL8821CS (from the 8821cs Wi-Fi driver)
+  | BlueZ: 5.63
+  exit 0
+
+=== info: attached but not answering
+--- info.sh 
+  | Controller: not answering (is Wi-Fi on?)
+  | Chip: not shown while Wi-Fi is off (the Wi-Fi driver names it)
+  | BlueZ: 5.63
+  exit 0
+
+=== info: Bluetooth off
+--- info.sh 
+  | Controller: unavailable while Bluetooth is off
+  | Chip: not shown while Wi-Fi is off (the Wi-Fi driver names it)
+  | BlueZ: 5.63
+  exit 0

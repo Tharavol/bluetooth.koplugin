@@ -228,6 +228,18 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
   remote that sends a single code per press would turn a page only on every
   other press.
 
+## Tests
+
+`sh tests/run.sh` runs the plugin against a fake KOReader and the scripts
+against a fake Kobo, and compares what each does with the transcripts in
+`tests/expected/`. It needs `luajit` and `busybox`, and CI runs it on every
+push. After a deliberate change in behaviour, read the diff, then record it
+with `sh tests/run.sh --update`.
+
+The fakes stand in for the device, not for testing on it: timing, the radio
+and the remotes themselves are only as good as what has been measured on the
+Sage and written into them.
+
 ## Digging deeper
 
 [`docs/HANDOFF.md`](docs/HANDOFF.md) is the technical record of the current
