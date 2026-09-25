@@ -199,7 +199,7 @@ end
 -- dialled the Free3 in the middle of a RePair's scan, and the pair that
 -- followed ran against an already connected device and left no bond
 -- ("Paired: no"). A deadline rather than a flag, for the same reason as
--- bt_starting_until; 90 s covers repair.sh's worst case.
+-- bt_starting_until; 90 s covers repair.sh's worst case, about 65 s.
 local BT_MANUAL_GRACE = 90
 local bt_manual_until = 0
 

@@ -8,8 +8,12 @@
 # device.conf at all both known remotes are tried, the Free3 first.
 BT_DEVICE_NAMES=
 BT_DEVICE_NAME=
-# shellcheck source=device.conf
-. "$BT_DIR/device.conf" 2>/dev/null || true
+# Checked first: a `.` of a missing file is fatal in busybox ash, `|| true` or
+# not, so the fallback below would never be reached.
+if [ -f "$BT_DIR/device.conf" ]; then
+    # shellcheck source=device.conf
+    . "$BT_DIR/device.conf"
+fi
 if [ -z "$BT_DEVICE_NAMES" ]; then
     BT_DEVICE_NAMES=${BT_DEVICE_NAME:-"Free3-P|Kobo Remote"}
 fi
@@ -19,6 +23,15 @@ fi
 # "timeout 5s bluetoothctl".
 bltctl() {
     timeout 5s bluetoothctl "$@"
+}
+
+# The same with a longer limit, for a call that can legitimately take longer:
+# bltctl_for SECONDS ARGS. bluetoothctl exits as soon as the call completes, so
+# the limit costs nothing when it's quick.
+bltctl_for() {
+    limit=$1
+    shift
+    timeout "${limit}s" bluetoothctl "$@"
 }
 
 # stdout is the result main.lua shows the user, so it carries only outcomes.
@@ -70,7 +83,9 @@ wait_powered() {
     done
 }
 
-# Succeed once `bluetoothctl info` reports both Paired: yes and Connected: yes.
+# wait_for_bond ADDRESS [TRIES]: succeed once `bluetoothctl info` reports both
+# Paired: yes and Connected: yes, checking up to TRIES times (default 5), a
+# second apart.
 # Leaves the last info output in $bond_info so a caller can report the state
 # it gave up on.
 #
@@ -83,8 +98,9 @@ wait_powered() {
 # it.
 wait_for_bond() {
     bond_info=
+    tries=${2:-5}
     attempt=0
-    while [ "$attempt" -lt 5 ]; do
+    while [ "$attempt" -lt "$tries" ]; do
         bond_info=$(bltctl info "$1" 2>&1) || true
         if echo "$bond_info" | grep -q "Paired: yes" && echo "$bond_info" | grep -q "Connected: yes"; then
             return 0
@@ -99,7 +115,7 @@ wait_for_bond() {
             return 1
         fi
         attempt=$((attempt + 1))
-        if [ "$attempt" -lt 5 ]; then
+        if [ "$attempt" -lt "$tries" ]; then
             sleep 1
         fi
     done

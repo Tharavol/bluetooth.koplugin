@@ -36,7 +36,12 @@ if [ -z "$bluetooth_address" ]; then
     echo "(on the Kobo Remote, press a button), then try RePair again."
     exit 1
 fi
-pair_output=$(bltctl pair "$bluetooth_address" 2>&1) || true
+# The pair gets 20 s rather than bltctl's 5. The Free3 takes longer than 5 s to
+# finish pairing: on the Sage the timeout killed bluetoothctl partway through
+# (no "Pairing successful" or "Failed to pair" in crash.log), RePair reported
+# failure a few seconds after its light started blinking, and BlueZ finished
+# the bond on its own shortly after.
+pair_output=$(bltctl_for 20 pair "$bluetooth_address" 2>&1) || true
 trust_output=$(bltctl trust "$bluetooth_address" 2>&1) || true
 connect_output=$(bltctl connect "$bluetooth_address" 2>&1) || true
 
@@ -44,7 +49,8 @@ connect_output=$(bltctl connect "$bluetooth_address" 2>&1) || true
 # reports success in the Connected: yes / Paired: no state, and a pair or trust
 # that failed says nothing about it here. This is the destructive path -- the
 # old bond is already gone -- so it is the one that most needs to be sure.
-if wait_for_bond "$bluetooth_address"; then
+# 10 tries rather than 5, for a bond that is still settling after that pair.
+if wait_for_bond "$bluetooth_address" 10; then
     printf '%s\n' "$pair_output" "$trust_output" "$connect_output" | diag
     echo "Remote: $name"
     # main.lua keys off this exact string.
