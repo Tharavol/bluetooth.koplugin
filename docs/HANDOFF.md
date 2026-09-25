@@ -258,28 +258,44 @@ preserve them.
 (needs Bluetooth on), the chip from the `8821cs` Wi-Fi module's name (needs
 Wi-Fi on), and the BlueZ version.
 
-### 3.4 `main.lua`
+### 3.4 The Lua side
+
+`main.lua` holds the plugin class, its menu and its handlers. The rest is in
+sibling modules, which the loader's `package.path` lets it `require` (#56):
+
+| Module | Holds |
+|---|---|
+| `bluetooth_config` | the plugin directory, the remotes' names from `device.conf`, setting keys |
+| `bluetooth_buttons` | the event-adjust hook and press pairing |
+| `bluetooth_stack` | running the scripts (`Stack.run`), whether Bluetooth and Wi-Fi are up |
+| `bluetooth_input` | finding, opening and closing the remotes' input devices |
+| `bluetooth_watcher` | the watcher, the unattended reconnect, starting Bluetooth in the background |
+
+The `bluetooth_` prefix is deliberate: `require` caches modules by name for the
+whole process, across every plugin. A `require`d module is also loaded once per
+process, which is what the state below wants — KOReader instantiates the plugin
+once for FileManager and again for ReaderUI.
 
 **Page turns: the event-adjust hook.** Both remotes emit **only**
 `EV_MSC`/`MSC_SCAN`; the kernel never synthesises a matching `EV_KEY`, and the
-usual fix, a udev hwdb rule, isn't available on this firmware. So `main.lua`
-registers one `Device.input:registerEventAdjustHook` and dispatches
+usual fix, a udev hwdb rule, isn't available on this firmware. So
+`bluetooth_buttons` registers one `Device.input:registerEventAdjustHook` and dispatches
 `GotoViewRel ±1` itself for `0x70051`/`0x70052`, and the third button's
-actions for `0x7002c`. It is registered **once per process**, from a
-module-level flag: KOReader instantiates the plugin once for FileManager and
+actions for `0x7002c`. It is registered **once per process**, behind a
+flag: KOReader instantiates the plugin once for FileManager and
 again for ReaderUI, and hooks chain rather than replace, so two registrations
 meant two page turns per press. Its state is module-level for the same reason.
 
 **Press pairing (#31).** Both remotes send each press's code exactly twice
 (§1), so a press acts on its first code and swallows its second
-(`bt_pending`), however long the second takes — a held Kobo Remote button
-sends it only on release. A 30 s backstop (`BT_PAIR_GAP`) abandons a pair
+(`pending` in `bluetooth_buttons`), however long the second takes — a held Kobo Remote button
+sends it only on release. A 30 s backstop (`PAIR_GAP`) abandons a pair
 whose second code never came, and the pairing resets whenever a remote's input
 device opens or closes, since a dropped link is when a code goes missing.
 Getting out of step would make every later press act on release. The hook
 also honours **Invert page-turn buttons**, read on every press.
 
-**Input devices.** `findInputDevices()` reads every `N: Name="…"` block for a
+**Input devices.** `Input.find()` reads every `N: Name="…"` block for a
 listed remote out of `/proc/bus/input/devices` and takes its `H: Handlers=`
 event node, and reports which remotes are present. Four traps:
 
@@ -287,21 +303,21 @@ event node, and reports which remotes are present. Four traps:
   named uhid devices, only one of which delivers events. Every match is
   opened; a silent one costs nothing.
 - **`/proc` and `/dev/input` are not in sync.** The kernel lists the device
-  before `udevd` creates the node. `waitForInputDevices()` polls, yielding
+  before `udevd` creates the node. `Input.waitFor()` polls, yielding
   between tries, until every listed node opens (#33).
 - **The same path can be a different device.** A reconnect can recreate the
   device on the same event number, so a descriptor held across it is dead.
   Close before opening, even when the path is unchanged.
 - **Closing a vanished device can close a live one** (#48). KOReader's input
   backend closes a vanished device's fd itself but keeps the `path → fd` entry
-  in `Input.opened_devices`; the number is then reused. `closeInputPath`
+  in `Input.opened_devices`; the number is then reused. `closePath`
   checks `readlink("/proc/self/fd/<fd>")` (declared through the FFI) against
   the path, and only clears the entry if it no longer matches.
 
-`bt_open_paths` (module-level) tracks what is open.
+`Input.openPaths()` is what is open.
 
 **The watcher.** A `UIManager:scheduleIn` tick every 5 s, scheduled once per
-process, reconciles `findInputDevices()` with `bt_open_paths` path by path:
+process, reconciles `Input.find()` with what is open, path by path:
 opens what is new, closes what has gone, leaves the rest alone. It logs rather
 than pops up — a popup from a timer would interrupt reading.
 
@@ -315,10 +331,10 @@ only the Kobo Remote is. Misses in that second case are debug-logged only.
   comes up** — startup, waking, a restart or a toggle — when a remote is most
   likely to be switched on.
 - **No overlap.** An attempt against unreachable remotes can outlast 10 s, so
-  a new one waits for the last (`bt_reconnect_running_since`).
-- **It stands aside** while `on.sh` runs (`BT_START_GRACE`, 40 s at most),
+  a new one waits for the last (`reconnect_running_since`).
+- **It stands aside** while `on.sh` runs (`START_GRACE`, 40 s at most),
   since `hci0` appears partway through and a connect then races the daemon
-  restart; and while a menu **Reconnect** or **RePair** runs (`beginManual`,
+  restart; and while a menu **Reconnect** or **RePair** runs (`Watcher.beginManual`,
   180 s at most), which also waits for an attempt already under way. An
   unattended connect in the middle of a RePair left the Free3 unbonded.
 - All three guards are **timestamps, not flags**, so a run that never reports
@@ -335,12 +351,12 @@ which covers the Dispatcher entry points too. Outside a wrap, Trapper falls
 back to a blocking `io.popen`, so a missed wrap shows up only as a freeze.
 
 - **Background runs** pass Trapper **an unshown table** as the trap widget
-  (`BACKGROUND()`): nothing can dismiss it, and taps go to the reader.
+  (`Stack.BACKGROUND()`): nothing can dismiss it, and taps go to the reader.
   Trapper's own invisible widget (`true` or `false`) is dismissed by any tap
   (#30).
 - **Scripts write their output once, at exit** (#47). `dismissablePopen`
   treats a run as finished once `FIONREAD` reports bytes, then does a
-  **blocking** `read("*all")` on the UI thread. So `executeScript` runs every
+  **blocking** `read("*all")` on the UI thread. So `Stack.run` runs every
   script as `out=$(/bin/sh <script>); printf '%s\n' "$out"`.
 
 **Startup.** *Turn on Bluetooth at startup* (on unless unticked) runs `on.sh`
@@ -405,7 +421,7 @@ cannot persist bonds at all. Check `df -h /` first.
 4. **A forced RePair right after switching a Free3 off** finds it still
    connected for 20 s (§1). The popup says to wait; there is no live test
    that would tell sooner.
-5. **`bt_open_paths` is per-process**, so it is empty after a KOReader
+5. **What is open is per-process** (`Input.openPaths()`), so it is empty after a KOReader
    restart. Harmless, and a tell in logs: a `watcher opened` line for a path
    already open, with no `closing` in between, means KOReader restarted.
 6. **`/var/log` is a 16 KB tmpfs**, so a conclusion drawn from something being
