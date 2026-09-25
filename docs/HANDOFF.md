@@ -1,7 +1,8 @@
 # Kobo Sage + Kobo Remote / Hanlinyue Free3 + KOReader — technical handoff
 
-Context transfer document. Describes hardware findings, the working
-configuration, every dead end tried (and why it failed), and open issues.
+How the plugin works today, the hardware facts it rests on, and what is still
+open. How it got here — the fixes along the way, the dead ends and the bugs
+worth remembering — is in [`HISTORY.md`](HISTORY.md).
 
 Base: [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin),
 itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
@@ -13,56 +14,56 @@ itself a fork of [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetoo
 
 ---
 
-## 1. Hardware / platform facts established
+## 1. Hardware and platform facts
 
 | Fact | How confirmed |
 |---|---|
 | BT/WiFi chip is **Realtek RTL8821CS** | `dmesg` shows `RTW:`/`rtl8821c_fillh2ccmd` lines; the Wi-Fi module is `8821cs`; `hciconfig hci0 version` reports `Manufacturer: Realtek Semiconductor Corporation (93)`, HCI/LMP 4.1, bus UART. `rtk_hciattach`'s log prints `IC: RTL8821CS` — but only once it exits: it buffers its output, so `/var/log/rtk_hciattach.log` is **empty while it runs** |
 | BT is UART-attached on `/dev/ttyS1`, H5 (three-wire) protocol | Nickel runs `/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5` |
-| WiFi driver module is `8821cs` | `/sys/module/8821cs/parameters/rtw_btcoex_enable` exists |
+| WiFi driver module is `8821cs` | `/sys/module/8821cs/parameters/rtw_btcoex_enable` exists. KOReader unloads it with Wi-Fi |
 | Chip reset line exists in devicetree as node `bt` | `/sys/firmware/devicetree/base/bt/bt_rst_n` |
 | Power/reset is gated through rfkill | `/sys/devices/platform/bt/rfkill/rfkill0/state` — write `1` to unblock, `0` to block |
 | `uhid` is **built into the kernel**, not a module | `zcat /proc/config.gz \| grep CONFIG_UHID` → `CONFIG_UHID=y` (so `lsmod` shows nothing; this is expected, not a fault) |
 | BlueZ version 5.63, config at `/etc/bluetooth/main.conf` | `bluetoothd -n -d` startup banner |
 | `bluetoothd` binary lives at `/libexec/bluetooth/bluetoothd` (note: **not** `/usr/libexec/...`) | `find / -name bluetoothd` |
 | BlueZ `input` and `hog` plugins are present and enabled | `bluetoothd -d` logs `add_plugin() Loading input plugin` / `Loading hog plugin` |
-| KOReader runs as **two** luajit processes (parent + child) | Normal on this build — confirmed present on a clean reboot, not an artifact of our kills |
+| KOReader runs as **two** luajit processes (parent + child) | Normal on this build — confirmed present on a clean reboot |
 | BlueZ stores bonds under **`/var/db/bluetooth/<adapter>/<device>/`**, not `/var/lib/bluetooth` | `bluetoothd -d` logs `store_device_info_cb() Unable set contents for /var/db/bluetooth/…` |
 | Rootfs is `/dev/mmcblk0p1`, **282 MB and ships nearly full** (~250 MB of it firmware under `/usr`) | `df -h /`, `du -skx /*` |
 | `/var/lib`, `/var/log`, `/var/run` are **tiny tmpfs mounts** (16k, 16k, 128k) | `/proc/mounts` |
 | The reconnect policy plugin **cannot drive an LE reconnect** | `policy.c:reconnect_timeout() Reconnecting services failed: Operation not supported (95)` |
+| A silent link is dropped after **20 s** | A Free3 switched off stays `Connected: yes`, with its ACL link and input device, for 20 s, then all three go at once. Measured with a once-a-second `bluetoothctl info` / `hcitool con` / `/proc/bus/input/devices` loop, 2026-09-25 |
 | `Trapper` is available, with `wrap`, `info`, `dismissablePopen`, `dismissableRunInSubprocess` | `grep "^function Trapper:" frontend/ui/trapper.lua` |
 | KOReader on the Sage is **v2026.03** | `cat /mnt/onboard/.adds/koreader/git-rev` |
-| A script's **stderr lands in `crash.log`** | KOReader's stdout/stderr go to `crash.log`, and `io.popen` children inherit stderr; `iwconfig`'s `no wireless extensions` lines appear there |
+| A script's **stderr lands in `crash.log`** | KOReader's stdout/stderr go to `crash.log`, and `io.popen` children inherit stderr |
+| `/bin/l2ping` and `hcitool` exist | `which`. Neither can test whether the Free3 is really there: see its entry below |
 
-### The remote itself
+### The Kobo Remote
 
-- Name `Kobo Remote`, MAC `AA:BB:CC:DD:EE:FF`, public address.
+- Name `Kobo Remote`, public address.
 - **BLE (HID-over-GATT / HOGP)**, not classic Bluetooth HID — advertises UUID
   `00001812-0000-1000-8000-00805f9b34fb`.
-- Presents as a media-key style keyboard. Its evdev modalias advertises key
-  capabilities including `A3`,`A4` (163/164 = `NextSong`/`PlayPause`).
 - Lands on `/dev/input/eventN` via `uhid` once connected **and bonded**.
   `N` is **not stable** across reconnects (seen as event3, event4, …).
+- Creates **two** identically named uhid input devices on every fresh pairing,
+  only one of which delivers events (§3.4).
+- Sends `MSC_SCAN` `0x70051` (forward) and `0x70052` (back): the HID usages
+  Keyboard Down Arrow and Up Arrow. No `EV_KEY`.
 - Sends each button's code **twice per press: once at press, once at release**
   (4–200 ms later for a tap). While held it sends only empty reports (a bare
-  `SYN_REPORT`) every ~37 ms, then the second code when released, however long
-  that takes. Measured with `evtest`, 2026-09-24. This used to be read as
-  "auto-repeats every 135–200 ms"; those were the release codes of short taps.
+  `SYN_REPORT`) every ~37 ms — visible in `evtest`, but they never reach
+  KOReader's event hook — then the second code when released, however long
+  that takes. Measured with `evtest`, 2026-09-24.
 - **Discards its bond when it loses power.** Pull the battery and it comes back
-  advertising as unbonded while BlueZ still holds the key. See §6.
+  advertising as unbonded while BlueZ still holds the key. See §4.
 - Stays connectable for a while after a software `disconnect` — a plain
   `bluetoothctl connect` brings it straight back, no keypress needed. After a
   power cycle it has to be woken with a button press first.
-- Creates **two** identically named uhid input devices on every fresh pairing,
-  only one of which delivers events (§3.5d).
-- Sends `MSC_SCAN` `0x70051` (forward) and `0x70052` (back): the HID usages
-  Keyboard Down Arrow and Up Arrow.
 
 ### The Hanlinyue Free3
 
-Confirmed on the Sage with `bluetoothctl info`, `/proc/bus/input/devices` and
-`evtest`, 2026-09-23/24.
+Confirmed on the Sage with `bluetoothctl info`, `/proc/bus/input/devices`,
+`evtest` and `hcitool con`, 2026-09-23/25.
 
 - A side switch selects one of three Bluetooth identities: `Free3-R`,
   `Free3-M`, `Free3-P`. The plugin uses **`Free3-P`**, which is why names are
@@ -72,12 +73,21 @@ Confirmed on the Sage with `bluetoothctl info`, `/proc/bus/input/devices` and
   uhid. **One** input device, named exactly `Free3-P`.
 - **Keeps its bond through power-offs.** No re-pair is needed after switching
   it off and on.
-- **Doesn't reconnect by itself.** Every return seen on the Sage was the
-  plugin's `connect.sh` dialling it, so it depends on the unattended reconnect
-  (§3.5f) like the Kobo Remote does.
-- Sends **only `MSC_SCAN`**, no `EV_KEY`, like the Kobo Remote. Each press sends
-  its code twice, ~30 ms apart (press and release), and nothing more while
-  held — no auto-repeat. A fast double-tap puts presses ~140 ms apart.
+- **Doesn't reconnect by itself** when switched on. Every return seen on the
+  Sage was the plugin's `connect.sh` dialling it (§3.4).
+- **Won't take a connection for about 45 s after being dropped.** When a
+  re-pair drops a connected Free3, its light starts blinking about 14 s later
+  and it shows up in a scan, but for the next ~30 s every page from the Kobo
+  goes unanswered (`ConnectionAttemptFailed`; `hcitool con` shows the Kobo's
+  outgoing link stuck connecting for 5 s at a time). Then it pages the Kobo
+  itself, and from then on connects and bonds normally. A Free3 switched off
+  first, then on while RePair was scanning, paired without trouble.
+- **Answers neither `l2ping` nor `hcitool name`** over a working link, so
+  neither can tell a live Free3 from one switched off within the last 20 s.
+  `l2ping` also exits 0 at 100% loss.
+- Sends **only `MSC_SCAN`**, no `EV_KEY`. Each press sends its code twice, both
+  at press, 18–40 ms apart, and nothing at release or while held — no
+  auto-repeat. A fast double-tap puts presses ~140 ms apart.
 - Its modes (cycled with the side On key) send, top/middle/bottom key:
 
   | Mode | Codes |
@@ -86,7 +96,7 @@ Confirmed on the Sage with `bluetoothctl info`, `/proc/bus/input/devices` and
   | Volume | `c00e9` Volume Up / `c00ea` Volume Down / `7002c` Spacebar |
 
   Up and Down Mode sends exactly the Kobo Remote's codes, so no new mapping was
-  needed. The bottom key's Spacebar is the "third button" (§3.5h).
+  needed. The bottom key's Spacebar is the "third button" (§3.4).
 
 ---
 
@@ -100,510 +110,303 @@ The upstream `on.sh` (and CarloDePieri's fork) assume a **Broadcom** chip:
 
 On the Sage this always ends in `bcm43xx_init / Initialization timed out`,
 because the Broadcom UART handshake is being spoken to a Realtek part. No
-`hci0` is ever created, so every downstream step fails:
-
-- `dbus-send` to `org.bluez` returns an empty object tree (no adapter).
-- `hciconfig hci0 up` → `Can't get device info: No such device`.
-- The plugin UI reports `no default controller`.
-
-The fork was hand-tailored to the author's own device — the readme explicitly
-says it is unlikely to work as-is for anyone else. `connect.sh` / `repair.sh`
-hardcode a `grep` for the author's `Q36` controller.
+`hci0` is ever created, so every step after it fails (`no default controller`
+in the plugin's UI). The parent's `connect.sh` / `repair.sh` also hardcoded a
+`grep` for its author's `Q36` controller.
 
 ---
 
-## 3. Working configuration
+## 3. How it works
 
 ### 3.1 Install location
 
 Folder **must** be named exactly `bluetooth.koplugin`. GitHub's "Download ZIP"
 produces `bluetooth.koplugin-main`; KOReader's loader only scans `*.koplugin`,
 so a mis-named folder means the plugin silently never loads — no error, nothing
-in `crash.log`. This cost an hour at the start.
+in `crash.log`.
 
 Path: `/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/`
 
-### 3.2 `on.sh`
+Copy the whole folder when upgrading: `connect.sh` and `repair.sh` source
+`lib.sh`.
 
-```sh
-#!/bin/sh
-cd /
+### 3.2 Bringing the stack up and down: `on.sh`, `off.sh`
 
-killall rtk_hciattach 2>/dev/null
-killall bluetoothd 2>/dev/null
-hciconfig hci0 down 2>/dev/null
+`on.sh` runs `bring_up` — kill the old daemons, power-cycle the chip through
+rfkill, attach it with `rtk_hciattach`, bring `hci0` up, start `bluetoothd` —
+and, if `hci0` is not `UP RUNNING` at the end, runs it once more (#49). It
+prints `complete` or `Error: hci0 did not come up - see crash.log`. Each
+requirement below was learned on the device; the comments in `on.sh` say where.
 
-echo 0 > /sys/devices/platform/bt/rfkill/rfkill0/state
-sleep 1
-echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
+1. **`rtk_hciattach`, not `hciattach bcm43xx`** (§2). It is a *resident*
+   process: H5 needs something servicing the link continuously.
+2. **Its output goes to a file.** Backgrounded with `&`, it still inherits the
+   script's stdout, and the plugin reads that to EOF — so the pipe never
+   closes and KOReader's UI thread hangs forever. Looked exactly like a crash.
+3. **`setsid` for `bluetoothd`.** Started with a plain `&`, it dies with the
+   session.
+4. **`cd /` first.** Both daemons inherit the script's working directory; left
+   on `/mnt/onboard`, they hold the user partition busy and USB mass storage
+   refuses to start (#44).
+5. **An rfkill power-cycle every time.** `hci0` regularly ends up
+   attached-but-`DOWN`, and only a full rfkill 0→1 cycle plus a fresh
+   `rtk_hciattach` recovers it. Detecting the bad state instead isn't worth it.
+   The cost: turning Bluetooth on always drops any existing connection.
+6. **Wait for the old daemons to exit.** `killall` only signals, and the old
+   `rtk_hciattach` restores the serial line's discipline as it exits — which
+   detaches a new one that has already attached.
+7. **Hold the radio off 4 s if it was on**, 1 s if it was off. A chip that was
+   running fails the H5 sync after 1 s off.
+8. **Poll, don't sleep.** Up to 10 s for `hci0` to appear (the attach syncs at
+   115200, downloads firmware and switches to 1.5 Mbaud), then up to 5 s after
+   `bluetoothd` starts for it to be `UP RUNNING`. The check belongs after
+   `bluetoothd`, which is what powers the controller.
+9. **No `bluetoothd -d`.** `/var/log` is a 16 KB tmpfs (§5).
 
-/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 > /var/log/rtk_hciattach.log 2>&1 &
-sleep 2
-hciconfig hci0 up
+A failed attempt writes `hciconfig hci0` and the attach log to `crash.log`,
+tagged `[bluetooth]`, stopping `rtk_hciattach` first since it only writes its
+log on exit.
 
-setsid /libexec/bluetooth/bluetoothd -n > /var/log/bluetoothd.log 2>&1 &
-sleep 2
+`off.sh` takes `hci0` down, kills both daemons, waits up to 3 s for them to
+exit (it runs synchronously at suspend, so the wait is capped), blocks the
+radio, and prints `off`.
 
-echo "complete"
-```
+### 3.3 The remote scripts: `device.conf`, `lib.sh`, `connect.sh`, `repair.sh`
 
-Four non-obvious requirements are encoded here:
+**`device.conf`** lists the remotes, in order of preference:
+`BT_DEVICE_NAMES="Free3-P|Kobo Remote"`. An older single `BT_DEVICE_NAME`
+still works, and with no `device.conf` at all both remotes are used. `lib.sh`
+sources it; `main.lua` parses it **the way sh reads it** — comment lines
+skipped, last assignment wins — so the two can't disagree.
 
-1. **Output redirection is mandatory, not cosmetic.** `rtk_hciattach` is a
-   *resident* process (H5 needs a process servicing the link continuously —
-   unlike a fire-and-forget `hciattach`). Backgrounded with `&` it still
-   inherits the script's stdout. The plugin invokes `on.sh` via `io.popen` and
-   reads to EOF, so the pipe never closes and **KOReader's UI thread hangs
-   forever**. Diagnosed via `/proc/<pid>/wchan` = `pipe_wait`. Looked exactly
-   like a crash.
-2. **`setsid` for bluetoothd.** Started with a plain `&` from an interactive
-   shell it dies with the session. This wasted time repeatedly.
-3. **`cd /`, not into the plugin directory.** Both daemons are resident and
-   inherit the script's working directory. Left on `/mnt/onboard`, they hold
-   the user partition busy, and KOReader's USB mass storage refuses to start
-   with `Filesystem is busy! Offending processes: rtk_hciattach, bluetoothd`
-   (#44).
-4. **Unconditional rfkill power-cycle.** `hci0` regularly ends up
-   attached-but-`DOWN`, at which point `hciconfig hci0 up` fails with
-   `Connection timed out (110)`. Only a full rfkill 0→1 cycle followed by a
-   fresh `rtk_hciattach` recovers it. Doing this every time is cheap insurance;
-   trying to detect the bad state was not worth it.
+**`lib.sh`** holds the shared helpers:
 
-Trade-off: this always tears down, so a "Bluetooth On" toggle drops any
-existing pairing/connection and takes a few seconds.
+- `bltctl` — `bluetoothctl` capped at 5 s; `bltctl_for SECONDS` for calls that
+  need longer. `bluetoothctl` exits when its call completes, so a limit costs
+  nothing when the call is quick. `scan on` is the exception: discovery belongs
+  to that `bluetoothctl` process, so a scan lasts exactly as long as its limit.
+- `diag` — sends `bluetoothctl`'s output to stderr, and so to `crash.log`,
+  tagged `[bluetooth]`. **stdout is for outcomes only**: whatever a script
+  prints there is what the user sees in a popup.
+- `device_macs NAME` — every known device named **exactly** NAME, from
+  `bluetoothctl devices`.
+- `wait_powered yes|no`, `wait_for_bond ADDRESS [TRIES]` — poll instead of
+  sleeping. `wait_for_bond` succeeds once `Paired: yes` **and**
+  `Connected: yes` both hold. It polls because `connect` returns with
+  encryption still in flight, so an immediate read says `Paired: no` for a
+  bond that is about to be fine. It gives up early when the link isn't up,
+  since nothing is in flight then.
 
-The shipped script wraps the whole kill → rfkill → attach →
-`hciconfig hci0 up` → `bluetoothd` sequence in `bring_up`. If `hci0` is not
-`UP RUNNING` afterwards, it runs it **once more** (#49). The check has to come
-after `bluetoothd`: that is what powers the controller, and `hci0` is
-routinely not yet UP before it starts. A check placed before `bluetoothd`
-made every start retry. The fixed `sleep 2`s are gone as well:
-`bring_up` polls, waiting up to 10 s for `hci0` to appear and up to 5 s for it
-to be `UP RUNNING`. The attach (sync at 115200, firmware download, switch to
-1.5 Mbaud) sometimes outlasted the fixed wait. The check then found no `hci0`,
-and the retry killed an attach that was about to succeed.
+**`connect.sh [--no-repair] [NAMES]`** is the quick path. It checks that
+`hci0` is `UP RUNNING` first, and otherwise prints `The Bluetooth controller is
+not responding. Toggle Bluetooth off and on.` — the one state only `on.sh` can
+fix (§3.4, suspend). Then, for each listed remote in order (or just `NAMES`),
+skipping any never paired:
 
-It also **waits for the old `rtk_hciattach` and `bluetoothd` to exit** after
-`killall`, which only signals. The old `rtk_hciattach` restores the serial
-line's discipline as it exits. If the new one has already attached by then,
-that detaches it: `Device setup complete` in the log, and no `hci0`. This hit
-every run of `on.sh` with Bluetooth already on, and a retry always recovered
-it, because by then nothing old was left.
+1. `bluetoothctl connect`, output **captured, not printed**, so its own
+   `Connection successful` can't pass for ours.
+2. `wait_for_bond`. On success print `Remote: <name>` and
+   `Connection successful`, and stop.
+3. Link up but no bond — the Kobo Remote after a battery change (§4):
+   remember it and carry on down the list. If nothing else connects,
+   `exec repair.sh` for it.
 
-With that fixed, restarting a running stack still failed its first attempt,
-this time at the H5 sync: `h5 hdr checksum error`, SYNC timeouts, then
-`Retransmission exhausts`. The rfkill-off lasted 1 s. With the radio held off
-for 4–6 s first, by `off.sh` plus a pause or by hand, it synced at once. So
-`bring_up` holds rfkill at 0 for **4 s when the radio was on**, and for 1 s
-from off, where that has always been enough. Each failed attempt writes `hciconfig hci0` and the
-attach log to `crash.log`, tagged `[bluetooth]`. It stops `rtk_hciattach`
-first, because the log is only written when the process exits.
-
-### 3.3 `off.sh`
-
-```sh
-#!/bin/sh
-cd /
-hciconfig hci0 down
-killall rtk_hciattach
-killall bluetoothd
-echo 0 > /sys/devices/platform/bt/rfkill/rfkill0/state
-```
-
-### 3.4 `repair.sh` / `connect.sh`
-
-The remotes live in `device.conf` as `BT_DEVICE_NAMES="Free3-P|Kobo Remote"`,
-in order of preference. `main.lua` parses it, and `lib.sh` sources it; both
-scripts source `lib.sh` for their shared helpers. An older single
-`BT_DEVICE_NAME` still works. It used to be hardcoded in three places, which is
-how an unquoted `grep "$BT_DEVICE_NAME"` got in — unquoted, `grep` reads
-`Remote` as a filename and dies.
-
-`main.lua` parses the file **the way sh reads it**: comment lines skipped, last
-assignment wins. It used to take the first `BT_DEVICE_NAME="…"` anywhere,
-comments included. With the old name kept as a comment above the new one, the
-scripts paired the Free3 while `main.lua` kept opening the Kobo Remote.
-
-The name is matched **exactly**, in the scripts (`device_macs` in `lib.sh`,
-against `Device <MAC> <name>` from `bluetoothctl devices`) and in `main.lua`
-(against `N: Name="<name>"`). A substring match took any device whose name
-merely contained the remote's, and two matches became a two-line address.
-Where more than one entry has the exact name, the first is used.
-
-`repair.sh [NAME]` is the full `power off/on` → `remove` → `scan` → `pair` →
-`trust` → `connect` cycle, for **one** remote: the one named, or the first
-listed. It is the only thing that recovers a bond the remote has forgotten,
-and it is destructive: `remove` throws away that remote's bond before
-rebuilding it. That is why the menu's RePair is a submenu with one entry per
-remote. The scan is `timeout 5s bluetoothctl scan on`, measured at the full
-5 s. Discovery belongs to that bluetoothctl process and stops when `timeout`
-ends it. It therefore judges its outcome the same way
-`connect.sh` does (step 2 below, `wait_for_bond` in `lib.sh`): it prints
-`Connection successful` only once `Paired: yes` and `Connected: yes` both
-hold. Before this it trusted the connect call, which reports success in the
-`Paired: no` state.
-
-`connect.sh [--no-repair] [NAMES]` is the quick path. It works through each
-listed remote in order (or just `NAMES`, `|`-separated), skipping any that were
-never paired, stops at the first with a working bond, and prints
-`Remote: <name>` alongside the result. For each one it verifies its own work:
-
-1. `bluetoothctl connect`, output **captured, not printed** — otherwise its
-   `Connection successful` leaks through as false success when the re-pair
-   path is taken below.
-2. Poll `bluetoothctl info` until `Paired: yes` **and** `Connected: yes`, up to
-   five tries a second apart. Polling matters: `connect` returns as soon as the
-   link is up with encryption still in flight, so an immediate read says
-   `Paired: no` for a bond that is about to be fine. The poll gives up early
-   when the link itself isn't up, since nothing is in flight then and each
-   retry just burns another 5 s timeout.
-3. On a good bond, print `Connection successful` explicitly — report on the
-   *verified state*, not on the connect call, which can fail while the bond is
-   perfectly fine.
-4. On a bad bond (link up, not paired), remember it and **carry on down the
-   list** — another remote may be fine as it is. Only if none connects does it
-   `exec repair.sh <that remote>`, so only the repair's output is reported.
-
-**`connect.sh --no-repair`** stops at step 4 and reports instead. This is what
-the unattended reconnect uses: a background process must never run
+With **`--no-repair`**, which the unattended reconnect always passes, step 3
+reports instead of re-pairing: a background process must never run
 `bluetoothctl remove`, because a re-pair that then failed would leave the
-remote worse off than it started.
+remote worse off.
 
-`main.lua` keys off the literal string `Connection successful`, so anything
-touching these scripts has to preserve it.
+**`repair.sh [NAME]`** re-pairs one remote: the one named, or the first
+listed. It is destructive — `remove` throws the old bond away — which is why
+the menu's RePair is a submenu with one entry per remote.
 
-**stdout is for outcomes only.** Whatever a script prints on stdout is what
-the user sees in a popup. `bluetoothctl`'s own output goes to stderr through
-`diag` in `lib.sh`, tagged `[bluetooth]`, and so into `crash.log`. That output
-includes scan results for every device in range, GATT dumps and colour codes.
-A failed re-pair once filled the screen with it, with the reason scrolled off
-the bottom. A failure prints the first `bluetoothctl` error (`first_error`)
-and the bond state.
+1. **A working remote is left alone.** If it is connected, bonded and its
+   input device is listed, the script says so (`Already connected`) and
+   removes nothing. Re-pairing a working Free3 costs ~45 s (§1). A remote
+   switched off within the last 20 s still counts as connected (§1), so the
+   popup says to wait 20 s before forcing a re-pair.
+2. Cycle the controller's power, then `remove` every entry with the name.
+3. **Find and pair, for up to 90 s.** Scan in 4 s rounds until the remote is
+   listed; pair (20 s limit — the Free3 takes more than 5); on failure, wait
+   2 s and try again, scanning again first if BlueZ has dropped the device,
+   which it does after a failed pair. A bond the remote formed from its own
+   side in the meantime counts as success. No power cycles between attempts:
+   they didn't help, and could miss the Free3's own page.
+4. `trust`, `connect`, then `wait_for_bond` with 10 tries. Success prints
+   `Remote: <name>` and `Connection successful`; failure prints the first
+   `bluetoothctl` error (`first_error`) and the bond state.
 
-### 3.5 `main.lua` changes
+`main.lua` keys off the literal strings `Connection successful`,
+`Remote: <name>`, `Already connected`, `complete` and
+`controller is not responding`, so anything touching the scripts has to
+preserve them.
 
-**a. Colon-call fix (crash).** `refreshPairing()` had:
+**`info.sh`** is read-only: the controller from `hciconfig hci0 version`
+(needs Bluetooth on), the chip from the `8821cs` Wi-Fi module's name (needs
+Wi-Fi on), and the BlueZ version.
 
-```lua
-Device.input.open(self.input_device_path)   -- WRONG
-```
+### 3.4 `main.lua`
 
-`Input:open` is defined with a colon, so a dot-call binds the *path string* as
-`self`; `self.input` is then nil and `self.input.is_ffi` throws
-`frontend/device/input.lua:335: attempt to index field 'input' (a nil value)`.
-Must be `Device.input:open(...)`.
+**Page turns: the event-adjust hook.** Both remotes emit **only**
+`EV_MSC`/`MSC_SCAN`; the kernel never synthesises a matching `EV_KEY`, and the
+usual fix, a udev hwdb rule, isn't available on this firmware. So `main.lua`
+registers one `Device.input:registerEventAdjustHook` and dispatches
+`GotoViewRel ±1` itself for `0x70051`/`0x70052`, and the third button's
+actions for `0x7002c`. It is registered **once per process**, from a
+module-level flag: KOReader instantiates the plugin once for FileManager and
+again for ReaderUI, and hooks chain rather than replace, so two registrations
+meant two page turns per press. Its state is module-level for the same reason.
 
-**b. MSC_SCAN → action hook.** The remote emits **only** `EV_MSC`/`MSC_SCAN`;
-the kernel never synthesises a matching `EV_KEY`, despite the key codes
-appearing in the device's capability bitmap. Normal fix is a udev hwdb rule —
-**unavailable**: this firmware's `udevadm` has no `hwdb` subcommand and no
-`hwdb.d` directories exist. `setkeycodes` is also useless (legacy AT/PS2
-scancode table only; these are wide HID-derived values).
+**Press pairing (#31).** Both remotes send each press's code exactly twice
+(§1), so a press acts on its first code and swallows its second
+(`bt_pending`), however long the second takes — a held Kobo Remote button
+sends it only on release. A 30 s backstop (`BT_PAIR_GAP`) abandons a pair
+whose second code never came, and the pairing resets whenever a remote's input
+device opens or closes, since a dropped link is when a code goes missing.
+Getting out of step would make every later press act on release. The hook
+also honours **Invert page-turn buttons**, read on every press.
 
-Working approach — translate in a `registerEventAdjustHook` and dispatch the
-UI event directly:
+**Input devices.** `findInputDevices()` reads every `N: Name="…"` block for a
+listed remote out of `/proc/bus/input/devices` and takes its `H: Handlers=`
+event node, and reports which remotes are present. Four traps:
 
-```lua
-local bt_hook_registered = false
+- **There can be more than one.** The Kobo Remote shows up as two identically
+  named uhid devices, only one of which delivers events. Every match is
+  opened; a silent one costs nothing.
+- **`/proc` and `/dev/input` are not in sync.** The kernel lists the device
+  before `udevd` creates the node. `waitForInputDevices()` polls, yielding
+  between tries, until every listed node opens (#33).
+- **The same path can be a different device.** A reconnect can recreate the
+  device on the same event number, so a descriptor held across it is dead.
+  Close before opening, even when the path is unchanged.
+- **Closing a vanished device can close a live one** (#48). KOReader's input
+  backend closes a vanished device's fd itself but keeps the `path → fd` entry
+  in `Input.opened_devices`; the number is then reused. `closeInputPath`
+  checks `readlink("/proc/self/fd/<fd>")` (declared through the FFI) against
+  the path, and only clears the entry if it no longer matches.
 
-local BT_SCAN_FORWARD = 0x70051  -- Keyboard Down Arrow
-local BT_SCAN_BACK    = 0x70052  -- Keyboard Up Arrow
+`bt_open_paths` (module-level) tracks what is open.
 
--- inside Bluetooth:init()
-if not bt_hook_registered then
-    bt_hook_registered = true
-    Device.input:registerEventAdjustHook(function(_, ev)
-        if ev.type == 4 and ev.code == 4 then  -- EV_MSC, MSC_SCAN
-            -- (press pairing, below, decides whether this code acts)
-            if ev.value == BT_SCAN_FORWARD then
-                UIManager:sendEvent(Event:new("GotoViewRel", 1))
-            elseif ev.value == BT_SCAN_BACK then
-                UIManager:sendEvent(Event:new("GotoViewRel", -1))
-            end
-        end
-    end)
-end
-```
+**The watcher.** A `UIManager:scheduleIn` tick every 5 s, scheduled once per
+process, reconciles `findInputDevices()` with `bt_open_paths` path by path:
+opens what is new, closes what has gone, leaves the rest alone. It logs rather
+than pops up — a popup from a timer would interrupt reading.
 
-**Press pairing (#31).** Both remotes send each press's code exactly twice:
-the Free3 both at press, 18–40 ms apart; the Kobo Remote at press and at
-release, however long it is held. So a press acts on its first code and
-swallows its second (`bt_pending`), with no time limit short of a 30 s
-backstop (`BT_PAIR_GAP`). The Kobo Remote's empty reports while held would
-have been the natural signal, but **they never reach KOReader's hook**:
-`evtest` shows them, and the hook logged `last empty report never`. Getting
-out of step would make every later press act on release, so the pairing
-resets whenever a remote's input device opens or closes — a dropped link is
-when a code can go missing.
+**Unattended reconnect.** BlueZ will not re-dial an LE peripheral (the
+`ReconnectUUIDs` row in [HISTORY's dead ends](HISTORY.md#dead-ends)), and the Free3 doesn't come back by itself, so the watcher runs
+`connect.sh --no-repair` itself. It dials **the remotes listed ahead of the
+best one present**: every remote when none is connected, the Free3 alone while
+only the Kobo Remote is. Misses in that second case are debug-logged only.
 
-This replaced a 0.5 s per-value time window. No single window can separate the
-two remotes: the Kobo Remote's release can come 200 ms after its press, and a
-Free3 re-tap 140 ms after the last. Replaying the `evtest` captures, the old
-window turned two pages for each Kobo Remote press held longer than 0.5 s and
-dropped the second page of a Free3 double-tap. The pairing got every press
-right.
+- **Pace:** every 60 s, but every 10 s for the **two minutes after Bluetooth
+  comes up** — startup, waking, a restart or a toggle — when a remote is most
+  likely to be switched on.
+- **No overlap.** An attempt against unreachable remotes can outlast 10 s, so
+  a new one waits for the last (`bt_reconnect_running_since`).
+- **It stands aside** while `on.sh` runs (`BT_START_GRACE`, 40 s at most),
+  since `hci0` appears partway through and a connect then races the daemon
+  restart; and while a menu **Reconnect** or **RePair** runs (`beginManual`,
+  180 s at most), which also waits for an attempt already under way. An
+  unattended connect in the middle of a RePair left the Free3 unbonded.
+- All three guards are **timestamps, not flags**, so a run that never reports
+  back can't disable reconnection for the session.
+- **A dead controller** (`controller is not responding`) triggers a background
+  `on.sh`, at most once per 5 minutes.
 
-The hook as shipped also honours **Invert page-turn buttons** (a
-`G_reader_settings` flag read on every press) and runs the Dispatcher actions
-assigned to the Free3's third button (`0x7002c`, §3.5h).
+**Nothing blocks the UI thread.** Scripts run through
+`Trapper:dismissablePopen(cmd, message)`, which returns **`completed,
+output`** — callers must take both; binding one variable gets the boolean, and
+the error it causes vanishes inside `Trapper:wrap`'s `pcall`. Each handler
+wraps itself (`if not Trapper:isWrapped() then return Trapper:wrap(…) end`),
+which covers the Dispatcher entry points too. Outside a wrap, Trapper falls
+back to a blocking `io.popen`, so a missed wrap shows up only as a freeze.
 
-**c. Connect on Bluetooth On.** `onBluetoothOn()` calls
-`self:onConnectToDevice()` on success, so one menu tap brings a remote all the
-way up. It used to call `onDeviceRepair()`, which threw away bonds that were
-usually fine. `connect.sh` still hands a remote whose bond really is gone to
-`repair.sh`. (Watch the colon — `self.onConnectToDevice()` silently
-misbehaves.)
+- **Background runs** pass Trapper **an unshown table** as the trap widget
+  (`BACKGROUND()`): nothing can dismiss it, and taps go to the reader.
+  Trapper's own invisible widget (`true` or `false`) is dismissed by any tap
+  (#30).
+- **Scripts write their output once, at exit** (#47). `dismissablePopen`
+  treats a run as finished once `FIONREAD` reports bytes, then does a
+  **blocking** `read("*all")` on the UI thread. So `executeScript` runs every
+  script as `out=$(/bin/sh <script>); printf '%s\n' "$out"`.
 
-**d. The input device is resolved at runtime.** `findInputDevices()` reads
-every `N: Name="…"` block for a listed remote out of `/proc/bus/input/devices`
-and takes each one's `H: Handlers=` line, rather than assuming `event3`. It
-also reports which remotes are present, for the preference check in f.
+**Startup.** *Turn on Bluetooth at startup* (on unless unticked) runs `on.sh`
+in the background 3 s after KOReader starts, once per process, unless
+Bluetooth is already up. The watcher connects afterwards. It isn't gated on
+Wi-Fi, unlike the Toggle entry (#42).
 
-Four traps here, all confirmed the hard way:
+**Suspend and resume (#29).** Left on across a suspend, the serial link to the
+chip died: `hci0` DOWN, `retransmitting` in `dmesg`, `org.bluez.Error.Busy`
+from every call. So `onSuspend` closes the inputs and runs `off.sh`
+**synchronously** (the Kobo sleeps as soon as the handlers return), and
+`onResume` brings Bluetooth back in the background a second later, which
+starts the fast reconnect window. The way KOReader treats Wi-Fi. Confirmed
+across a night's sleep.
 
-- **There can be more than one.** The remote has shown up as two identically
-  named uhid devices (`…0004` on `event3`, `…0005` on `event4`, same MAC),
-  of which `evtest` showed only `event4` delivering `MSC_SCAN`. Taking the first
-  match opened the dead one: connected, `Connection successful!`, no page
-  turns. Every match is opened now — a device that never sends anything costs
-  nothing to hold. Why BlueZ left two is not established.
+**Third button.** The Free3's `0x7002c` runs a Dispatcher action list stored
+in `G_reader_settings` (`bluetooth_button_actions.third`), edited through
+`Dispatcher:addSubMenu` — the gestures picker — and flushed in
+`onFlushSettings`. It runs on `UIManager:nextTick`, not inside the hook.
 
-- `/proc/bus/input/devices` and `/dev/input/` are **not in sync**. The kernel
-  lists the device immediately; the node is `udevd`'s job and lags. Opening as
-  soon as the entry appeared failed with `No such file or directory`. The old
-  fixed `sleep 3` had been covering this by accident. `waitForInputDevices()`
-  now polls until every listed node actually *opens*, and distinguishes "not
-  there" from "listed but no node" so the popup names the real problem.
-- **The same path can be a different device.** A disconnect destroys the uhid
-  device and the reconnect can recreate it on the same event number, so a
-  descriptor held across the cycle points at something that no longer exists —
-  same path, different device, no events. Always close before opening, even
-  when the path is unchanged.
-- **Closing a vanished device can close a live one** (#48). When a device goes
-  away, KOReader's input backend closes its fd by itself (`[ko-input] Closed
-  input device … (matched by idx)`) but keeps the `path → fd` entry in
-  `Input.opened_devices`. The fd number is then reused, so a later
-  `Input:close(path)` closes whatever holds it now. On the Sage, that was the
-  other remote (`… (matched by fd)` in the wrong slot), which left the reader
-  connected and turning no pages. `closeInputPath` therefore checks
-  `readlink("/proc/self/fd/<fd>")` against the path first. If it no longer
-  matches, it only clears the entry. `readlink` is declared through the FFI;
-  without it the close is unconditional, as before.
+**Menu placement.** Bluetooth sits on the settings tab directly below Network.
+A `sorting_hint` can only append, so the plugin inserts `"bluetooth"` after
+`"network"` in `ui/elements/reader_menu_order` and `…/filemanager_menu_order`,
+which `require` caches. Checked against v2026.03's `menusorter.lua`.
 
-`bt_open_paths` (module-level) tracks what is actually open;
-`closeInputDevices()` releases all of it, called from `refreshPairing()` and
-`onBluetoothOff()`. The watcher closes individual paths as they disappear.
-
-**e. The watcher.** A `UIManager:scheduleIn` tick every 5 s compares
-`findInputDevices()` against `bt_open_paths` and reconciles them path by path:
-opens what is newly listed, closes what is no longer listed, and leaves the
-rest alone so a live device isn't dropped when a sibling changes.
-Scheduled **once per process**, guarded by a module-level flag for the same
-reason as the adjust hook (§5) — `init()` runs for FileManager and again for
-ReaderUI, and two timers would race onto the same device. It logs rather than
-popping up: an `InfoMessage` fired from a timer would interrupt reading.
-
-**f. Unattended reconnect.** BlueZ will not re-dial an LE peripheral (§4), and
-the Free3 doesn't come back by itself either. So the watcher runs
-`connect.sh --no-repair` itself, rate-limited to once a minute. Roughly seven
-seconds from a dropped link to a working remote.
-
-It dials **the remotes listed ahead of the best one present**: every remote
-when none is connected, the Free3 alone while only the Kobo Remote is. Without
-the second case, a connected Kobo Remote kept the preferred Free3 out
-indefinitely. Misses in that case are only debug-logged, because a Free3 left
-switched off would otherwise add a line every minute.
-
-Background runs pass Trapper **an unshown table** as the trap widget
-(`BACKGROUND()`). Trapper treats a table as an already-shown widget, attaches
-its `dismiss_callback` and never shows or closes it. So nothing can dismiss
-the run, and taps go to the reader. Its own invisible widget (`true`) is
-dismissed by any tap. `false` is too, and swallows the tap. On the Sage the
-reconnect and the startup run were both logged as `interrupted` in the same
-second, with their scripts left running unsupervised (#30).
-
-For **two minutes after Bluetooth comes up**, at startup, on waking, after a
-restart or a toggle, attempts come every 10 s instead of every 60 s. That is
-when a remote is most likely to be switched on: after a night's sleep the
-Free3 was off, missed the attempt made right after waking, and waited a
-further minute. Since an attempt against unreachable remotes can take more
-than 10 s, attempts are also kept from overlapping (`bt_reconnect_running_since`,
-itself a timestamp so a run that never returns can't block the next for good).
-
-The rate limit is a **timestamp, not an in-progress flag** — a flag left `true`
-by an error would disable reconnection for the whole session, where a stale
-timestamp costs at most one extra attempt.
-
-**g. Nothing blocks the UI thread.** `executeScript` was `io.popen` read to EOF
-on the UI thread, freezing the reader for the 15–20 s a pair-and-connect takes.
-It now calls `Trapper:dismissablePopen(cmd, message)`, which returns
-**`completed, output`** — two values. Callers must take both: binding it to one
-variable gets the boolean, and the `result:match()` that follows throws into
-`Trapper:wrap`'s `pcall` and *vanishes*, so the symptom is nothing happening
-rather than a traceback.
-
-Each handler wraps itself:
-
-```lua
-if not Trapper:isWrapped() then
-    return Trapper:wrap(function() self:onConnectToDevice() end)
-end
-```
-
-Wrapping here rather than at the menu callback covers the Dispatcher entry
-point, so a gesture behaves like a menu tap; the guard keeps
-`onBluetoothOn` → `onConnectToDevice` inside one coroutine instead of nesting.
-Background runs use the unshown-table trick in f. Outside a wrap, Trapper logs
-`unwrapped dismissablePopen()` and falls back to blocking `io.popen` — so a
-missed wrap still *works*, and only shows up as a freeze.
-
-**Scripts must write their output once, at exit** (#47). `dismissablePopen`
-treats a run as finished once `FIONREAD` reports bytes on the pipe, then reads
-the rest with a **blocking** `read("*all")` on the UI thread. A script that
-printed nothing never finished, because EOF reads as 0 bytes available, so
-`off.sh` left its message up until tapped. One that printed early finished at
-its first line and froze the reader for the rest. `executeScript` therefore
-wraps every script as `out=$(/bin/sh <script>); printf '%s\n' "$out"`.
-
-**h. Startup, the third button and the menu.**
-
-- **Bluetooth at startup.** *Turn on Bluetooth at startup* (on unless
-  unticked) runs `on.sh` three seconds after KOReader starts, once per process,
-  in the background. It is skipped when Bluetooth is already up, since `on.sh`
-  tears the stack down. While `on.sh` runs, the watcher stands aside:
-  `hci0` appears partway through, and a reconnect started then raced the
-  daemon restart. It waits until `on.sh` reports back, or at most 20 s. Not
-  gated on Wi-Fi, unlike the Toggle entry (#42).
-- **Third button.** The Free3's `0x7002c` runs a Dispatcher action list stored
-  in `G_reader_settings` (`bluetooth_button_actions.third`), edited through
-  `Dispatcher:addSubMenu` — the gestures/hotkeys picker — and flushed in
-  `onFlushSettings`. It runs on `UIManager:nextTick`, not inside the hook.
-- **Menu placement.** Bluetooth sits on the settings tab directly below
-  Network. A `sorting_hint` can only append to the end of a menu, so the plugin
-  inserts `"bluetooth"` after `"network"` in `ui/elements/reader_menu_order`
-  and `…/filemanager_menu_order`, which `require` caches. The hint,
-  `"setting"`, is the fallback. Checked against v2026.03's `menusorter.lua`.
+**Strings** go through `T(_("… %1"), x)` (`ffi/util`'s `template`), so
+translators get whole sentences.
 
 ---
 
-## 4. Dead ends — do not re-try these
+## 4. The `Connected: yes` / `Paired: no` state
 
-| Attempt | Result |
-|---|---|
-| `hciattach ... bcm43xx` (upstream default) | `Initialization timed out` — wrong vendor protocol |
-| `setkeycodes` for the scancodes | Wrong tool; legacy AT/PS2 table, can't express `0x111a3`-scale HID values |
-| udev hwdb rule (`KEYBOARD_KEY_*`) | `udevadm` on this firmware has no `hwdb` subcommand; no `hwdb.d` dirs exist |
-| Mutating `ev.type`/`ev.code` in the adjust hook to synthesise `EV_KEY`, then mapping via `settings/event_map.lua` to `BTLeft`/`BTRight` | Never fired. Dispatch to `handleKeyBoardEv` vs `handleMiscEv` appears to be decided before the hook runs, so rewriting `ev.type` afterwards is too late |
-| Remapping onto existing keycodes 103/108 (`Up`/`Down`) | Those are `Cursor` group keys with nothing useful bound in reader view |
-| Believing `evtest` and KOReader disagree on scancodes | They don't. `evtest` prints `70051`/`70052` in **hex**; `458833`/`458834` are the same values in decimal. This row used to call them different numbers. The constants are now written in hex |
-| Debouncing against time-of-last-*accepted*-action | Can't distinguish a held button from fast consecutive taps; reduced but never eliminated double-advance |
-| `hcitool lescan` while `bluetoothd` is running | `Set scan parameters failed: Connection timed out` — fights bluetoothd for the raw HCI socket. Use `bluetoothctl` instead |
-| Killing the child luajit process | Killed BT input while leaving touch working. Two processes is normal on this build; not the cause of anything |
-| Range-based `sed -i '/start/,/end/c\...'` for multi-line edits | Misfired twice; once destroyed ~200 lines of `main.lua` because the closing pattern `^end)$` didn't match the actual indented `    end)`. **Edit the file locally and transfer it** |
-| Adding HOGP (`00001812-…`) to `[Policy] ReconnectUUIDs` to get auto-reconnect | **Structurally impossible, don't retry.** The policy plugin does match the device and fire its ladder — `disconnect_cb() identified for auto-reconnection`, `reconnect_set_timer() attempt 1/10` — then dies with `Reconnecting services failed: Operation not supported (95)`. It reconnects by calling a profile's `connect` method and LE profiles like HoG have none; an LE link comes up via GATT, not per-profile. That is why the stock list holds only classic HID and A2DP sink. The plugin has to dial it itself (§3.5f) |
-| `sed -i` on the rootfs when `/` is full | Writes a temp file and renames it over the target, so it silently replaced `/etc/bluetooth/main.conf` with a **0-byte file** and reported nothing. The `cp` backup taken first had already failed for the same reason. Check `df -h /` before editing anything on `/` |
-| Leaving a mock `bluetoothctl` earlier in `PATH` after a test | Poisoned three rounds of diagnosis in the same shell. It exits 0 with no output for any subcommand it doesn't implement, so `disconnect` did nothing, `--version` printed nothing, and `info \| grep -i uuid` came back empty — which produced an entire wrong theory about BlueZ storage before the real output showed the UUIDs were there. `command -v bluetoothctl` when a result is surprisingly empty |
-| Reading `bluetoothctl info` immediately after `connect` to check the bond | Races encryption; reports `Paired: no` for a bond about to be fine. On the menu path that meant `exec repair.sh`, destroying a working bond to rebuild it. Poll instead (§3.4) |
-| Trapper's invisible trap widget (`true`, or `false`) for background runs | Any tap dismisses it, and at startup both background runs were cancelled together (#30). Pass an unshown table instead (§3.5f) |
-| `Input:close(path)` on a device that has gone away | KOReader already closed the fd, and the number may now belong to the other remote (#48). Check `/proc/self/fd/<fd>` first (§3.5d) |
-
----
-
-## 5. The double-page-advance bug (solved)
-
-Symptom: one button press advanced 2 pages.
-
-Red herring: it looked like a timing/repeat problem, since the remote sends a
-second code ~135–200 ms after the first (its release, as it turned out; see
-§1), so widening the debounce window seemed right. It never fully worked.
-
-The tell: `logger.info` output showed pairs of lines with **byte-identical
-timestamps and deltas**. That's not two events — it's one event handled twice.
-
-Cause: KOReader instantiates a plugin once per UI context (FileManager and
-ReaderUI), so `Bluetooth:init()` runs twice in the same process. And
-`registerEventAdjustHook` **chains** hooks rather than replacing them. Result:
-two live hooks, each closing over a different `self`, each debouncing against
-its own `self.last_bt_seen_time` table, neither aware of the other. Both fire.
-
-Fix: move debounce state to module-level locals (shared, because `require`
-caches the module) and guard registration with a module-level boolean so the
-hook is only ever added once. See §3.5b.
-
----
-
-## 6. The `Connected: yes` / `Paired: no` state (explained)
-
-Symptom, seen for months: the remote reports connected, `bluetoothctl` looks
-healthy, and **no input device is ever created**, so nothing turns pages. Only
-a full re-pair recovers it.
-
-It was assumed to be BlueZ flakiness. It isn't. The remote **discards its bond
-when it loses power**:
+The Kobo Remote reports connected, `bluetoothctl` looks healthy, and **no input
+device is ever created**. The remote **discards its bond when it loses power**:
 
 1. Battery pull — the remote throws away its bond.
 2. It re-advertises as an unbonded device.
 3. BlueZ still holds the LTK, connects, and offers it.
 4. The remote rejects a key it no longer has.
-5. Bonding fails — `bonding_attempt_complete() … status 0x5`,
-   `device_bonding_failed() status 5`, HCI **authentication failure** — so
-   BlueZ clears `Paired`, **but the LE link stays up**.
+5. Bonding fails — `bonding_attempt_complete() … status 0x5`, HCI
+   **authentication failure** — so BlueZ clears `Paired`, **but the LE link
+   stays up**.
 
-The HID characteristics need an encrypted link, so HoG can never read the
-report map and no uhid device appears. Connected, and dead.
+The HID characteristics need an encrypted link, so HoG never reads the report
+map and no uhid device appears. A bond the peripheral has thrown away can only
+be replaced, which is why the menu's Reconnect hands this state to
+`repair.sh`. Confirmed from `bluetoothd` debug logs.
 
-Verified live: while in that state there was no input device at all, and one
-tap of *Reconnect to Device* flipped `Paired: no` → `yes` and brought it back.
-That flag can only move via a full re-pair, so it proves the fall-through in
-§3.4 fired.
-
-**Consequence for the design:** automatic re-pair is the *correct* fix, not a
-workaround. A bond the peripheral has thrown away cannot be recovered, only
-replaced.
-
-A second, independent cause of pairings that "never quite stick": if `/` is
-full, BlueZ cannot persist bond updates at all — see §1 and §4. Symptomless
-apart from the failure itself. Check `df -h /` first.
+A second cause of pairings that "never quite stick": if `/` is full, BlueZ
+cannot persist bonds at all. Check `df -h /` first.
 
 ---
 
-## 7. Open issues / possible next work
+## 5. Open issues
 
-1. **The remote forgets its bond on power loss** (§6). Nothing to be done about
-   it in software beyond re-pairing, which *Reconnect to Device* now does by
-   itself. Listed because it explains most reports of "flaky" behaviour.
-2. **Automatic recovery is untested across suspend/resume.** Everything was
-   verified with forced disconnects over SSH. `UIManager` timers do not fire
-   while the Kobo is asleep, so the watcher and the unattended reconnect have
-   never been exercised across a real overnight idle or a wake from sleep.
-   Most likely remaining gap.
-3. **`hci0` sometimes stays down after `on.sh`.** Seen once at startup
-   (`hci0 did not come up`), with the next start fine. `on.sh` now retries the
-   whole bring-up once (#49); whether that recovers it has not been observed
-   yet. If it recurs, `crash.log` has the attach log from each attempt.
-4. **`bt_open_paths` is per-process**, so it is empty after a KOReader restart.
-   Believed harmless — nothing is open at that point either — but it means the
-   close only covers handles opened in the current session. It is also a useful
-   tell when reading logs: a `watcher opened` line for a path already opened,
-   with no `closing` for it in between, means KOReader restarted.
-5. **`/var/log` is a 16 KB tmpfs.** `on.sh` used to start `bluetoothd -d`
-   into it, which wrapped within seconds. It no longer passes `-d` (#34), but
-   the log is still small and short-lived, so any conclusion drawn from
-   something being *absent* in it is unsafe. For debug output, start a debug
-   daemon by hand pointed somewhere with room (§8).
-6. **The four `[General]` lines of `main.conf` are gone**, destroyed by `sed -i`
-   on a full disk before a backup existed. Everything has worked on BlueZ
-   defaults since. If a pristine copy ever turns up in a firmware package,
-   worth diffing.
-7. **Press pairing assumes exactly two codes per press** (§3.5b), which holds
-   for both remotes as measured. A third remote that sends one code per press
-   would turn a page only on every other press, and would need its own
-   handling.
-8. **Why the Kobo Remote gets two input devices** is not established (§3.5d).
+1. **The Kobo Remote forgets its bond on power loss** (§4). Nothing to be done
+   beyond re-pairing. Listed because it explains most "flaky" reports.
+2. **Why the Kobo Remote gets two input devices** is not established.
+3. **Press pairing assumes exactly two codes per press**, true of both remotes
+   as measured. A remote sending one code per press would turn a page only on
+   every other press.
+4. **A forced RePair right after switching a Free3 off** finds it still
+   connected for 20 s (§1). The popup says to wait; there is no live test
+   that would tell sooner.
+5. **`bt_open_paths` is per-process**, so it is empty after a KOReader
+   restart. Harmless, and a tell in logs: a `watcher opened` line for a path
+   already open, with no `closing` in between, means KOReader restarted.
+6. **`/var/log` is a 16 KB tmpfs**, so a conclusion drawn from something being
+   *absent* there is unsafe. Start a debug daemon by hand, logging somewhere
+   with room (§6).
+7. **The four `[General]` lines of `main.conf` are gone**, destroyed by
+   `sed -i` on a full disk. Everything has worked on BlueZ defaults since. If a
+   pristine copy turns up in a firmware package, worth diffing.
+8. The v1.6.0 and v1.7.0 milestones hold the rest: installing on other
+   models, packaging, the Wi-Fi gate (#42), and tests in CI.
 
 ---
 
-## 8. Useful commands
+## 6. Useful commands
 
 ```sh
 # stack health, top to bottom
@@ -612,12 +415,19 @@ ps aux | grep -i rtk_hciattach
 ps aux | grep -i bluetoothd
 bluetoothctl show                    # want: Powered: yes
 bluetoothctl info AA:BB:CC:DD:EE:FF  # want: Paired: yes AND Connected: yes
-cat /proc/bus/input/devices          # find the Kobo Remote's eventN
+cat /proc/bus/input/devices          # find a remote's eventN
 df -h /                              # BlueZ cannot persist bonds on a full /
 
-# what the plugin is actually doing (INFO level, no debug flag needed)
-grep -E "Bluetooth:|\[bluetooth\]|ko-input" \
-     /mnt/onboard/.adds/koreader/crash.log | tail -30
+# what the plugin is doing (INFO level, no debug flag needed), without the
+# advertising chatter of every device in range
+grep -E "Bluetooth:|\[bluetooth\]" /mnt/onboard/.adds/koreader/crash.log |
+    grep -v "Device [0-9A-F:]* [0-9A-F-]*$" |
+    grep -v "RSSI\|TxPower\|ManufacturerData\|ServiceData\|^\[bluetooth\]   " |
+    tail -80
+
+# the Kobo's Bluetooth links, once a second: < outgoing, > incoming;
+# state 5 = still connecting, state 1 = connected
+while true; do echo "$(date +%T) $(hcitool con | tail -n +2 | tr '\n' ' ')"; sleep 1; done
 
 # which input devices KOReader holds open -- the remote's should come and go
 pid=$(ps | grep '[r]eader.lua' | awk '{print $1}' | head -1)
@@ -627,44 +437,34 @@ ls -l /proc/$pid/fd | grep event
 # --no-repair can never reach repair.sh, so this is safe to poke at
 time /bin/sh /mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/connect.sh --no-repair
 
-# full manual recovery when hci0 is wedged
-killall rtk_hciattach; hciconfig hci0 down
-echo 0 > /sys/devices/platform/bt/rfkill/rfkill0/state; sleep 1
-echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
-/sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 &
-sleep 2; hciconfig hci0 up
+# restart the stack by hand, with the output on screen
+sh /mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/on.sh; echo "exit $?"
 
 # raw button codes as the kernel sees them
 evtest /dev/input/eventN
 
 # bluetoothd with debug logging.
 # NOT into /var/log -- that is a 16 KB tmpfs and debug output overruns it in
-# seconds, which silently truncated our diagnostics for most of a day. Send it
-# somewhere with room. Restarting bluetoothd alone is enough to pick up a
-# main.conf change; the controller stays attached.
+# seconds. Restarting bluetoothd alone picks up a main.conf change; the
+# controller stays attached.
 killall bluetoothd
 setsid /libexec/bluetooth/bluetoothd -n -d > /mnt/onboard/bluetoothd.log 2>&1 &
 sleep 2 && bluetoothctl power on     # a fresh daemon comes up powered down
-
-# did a config change actually take? compare the daemon's start time
-ls -l /etc/bluetooth/main.conf
-ls -ld /proc/$(pidof bluetoothd)
 
 # KOReader restart from SSH (wrapper respawns it)
 ps aux | grep -i luajit
 kill -9 <parent-pid>
 ```
 
-Gotcha: KOReader's SSH server is a plugin, so exiting KOReader kills your own
-shell access. Also, **"Developer options" only appears in the File Manager's
-Tools → More tools menu**, not in the reader view with a book open — this is
-how to turn verbose logging back off. Failing that, edit `debug` /
-`debug_verbose` in `settings.reader.lua` over USB mass storage with KOReader
-closed.
+Gotchas: KOReader's SSH server is a plugin, so exiting KOReader kills your own
+shell. **"Developer options" only appears in the File Manager's Tools → More
+tools menu**, not in the reader. And check `command -v bluetoothctl` when a
+result is surprisingly empty — a mock left on `PATH` once poisoned three rounds
+of diagnosis.
 
 ---
 
-## 9. Community
+## 7. Community
 
 Nothing found documenting a Realtek-chip Sage working with the official BLE
 remote through any of these plugins. Worth reporting to:

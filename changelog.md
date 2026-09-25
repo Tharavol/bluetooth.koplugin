@@ -6,6 +6,81 @@ history of
 [CarloDePieri/bluetooth.koplugin](https://github.com/CarloDePieri/bluetooth.koplugin)
 and [onatbas/bluetooth.koplugin](https://github.com/onatbas/bluetooth.koplugin).
 
+## v1.5.0 — 2026-09-25 — Survives a real night
+
+Bluetooth now goes off when the Kobo sleeps and comes back when it wakes, and
+the remote reconnects on its own after a night's sleep. Holding a button turns
+one page, and a quick double-tap turns two. Turning Bluetooth on no longer
+needs a retry, and RePair works first time with the Free3. All confirmed on the
+Sage (KOReader v2026.03).
+
+**Upgrading:** copy the whole folder. Nothing to re-pair or reconfigure.
+
+### Added
+
+- **Bluetooth off for suspend, back on waking.** Left running across a
+  suspend, the serial link to the chip died, and no remote worked until a
+  manual toggle. The plugin now turns Bluetooth off as the Kobo sleeps and
+  brings it back in the background when it wakes, the way KOReader treats
+  Wi-Fi. A controller found dead anyway is restarted, at most every five
+  minutes. Confirmed across a night's sleep. (#29)
+- **Quick reconnects after Bluetooth comes up.** For two minutes after
+  startup, waking, a restart or a toggle, a missing remote is dialled every
+  10 s instead of every minute. After a night's sleep the Free3 was switched on
+  just after the attempt made on waking, and waited another minute.
+- **Bluetooth info** in the menu: the device, whether Bluetooth is on, the
+  controller's manufacturer, Bluetooth version, bus and address, the chip as
+  the Wi-Fi driver names it, and the BlueZ version. (#50)
+
+### Changed
+
+- **One page per press, however long it is held.** Both remotes send each
+  press's code twice: the Free3 both at press, the Kobo Remote at press and
+  again at release. The plugin acts on the first and ignores the second. The
+  old 0.5 s debounce turned two pages for a Kobo Remote press held longer than
+  that, and dropped the second page of a Free3 double-tap. (#31)
+- **RePair leaves a working remote alone.** If the remote is connected, paired
+  and delivering input, RePair says so and keeps the bond. To re-pair anyway,
+  switch the remote off, wait 20 seconds, and choose RePair.
+- **RePair waits for the Free3.** A connected Free3 dropped by a re-pair
+  ignores the Kobo for about 45 s. RePair now scans for up to 20 s, gives the
+  pair 20 s instead of 5, and retries for up to 90 s, so it no longer needs a
+  second try.
+- **Messages can be translated.** Popup and menu strings are built as whole
+  sentences with placeholders. (#52)
+
+### Fixed
+
+- **`on.sh` failed on its first attempt** when Bluetooth was already on, and
+  sometimes at startup. It checked `hci0` before `bluetoothd` had powered it,
+  slept fixed times that a slow attach outlasted, started a new attach while
+  the old one was still exiting, and held the radio off too briefly for a chip
+  that had been running. It now waits for each step, and retries the whole
+  bring-up once if `hci0` stays down. The attach log goes to `crash.log` when
+  it does. (#49)
+- **The reader froze for up to 5 s** while waiting for a remote's input device.
+  The wait now yields to the UI. (#33)
+- **The background reconnect could spoil a RePair.** It dialled the Free3 in the
+  middle of RePair's scan, and the pairing that followed left no bond. The
+  watcher now stands aside during a menu Reconnect or RePair.
+- **A missing `device.conf` stopped the scripts** instead of falling back to
+  both remotes.
+
+### Internal
+
+- Dead upstream code removed from `main.lua`, and its indentation evened out.
+  (#51)
+- `repair.sh`, `off.sh` and `lib.sh` tidied; `repair.sh` polls for the
+  controller's power state instead of sleeping. (#53)
+- The CI workflow's actions are pinned to commit SHAs. (#54)
+
+### Documented
+
+- HANDOFF is now the current design only, and a new `docs/HISTORY.md` holds the
+  dead ends and how each fix was found. The readme's *What's different here*
+  covers the two remotes, startup, suspend and press pairing, and CREDITS the
+  Free3 and the KOReader internals the plugin relies on. (#55)
+
 ## v1.4.0 — 2026-09-24 — Hanlinyue Free3 support
 
 A second remote: the Hanlinyue Free3 in P mode works alongside the official

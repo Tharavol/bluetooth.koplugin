@@ -33,9 +33,27 @@ an ancestor of this code:
 ## KOReader
 
 Built on [KOReader](https://github.com/koreader/koreader), and leans on rather
-more of its internals than a plugin usually does: `Device.input:open/close`,
-`registerEventAdjustHook`, `UIManager:scheduleIn`, and `Trapper` for running
-the scripts off the UI thread.
+more of its internals than a plugin usually does:
+
+- `Device.input:open/close` and `registerEventAdjustHook`, for the remotes'
+  input devices and their codes;
+- `Input.opened_devices`, the input backend's path → fd table, which the
+  plugin checks against `/proc/self/fd` before closing anything;
+- `Trapper` — `wrap` and `dismissablePopen` — for running the scripts off the
+  UI thread, including how it treats a table passed as its trap widget;
+- `Dispatcher`'s action picker (`addSubMenu`, `execute`, `menuTextFunc`), the
+  one gestures use, for the Free3's third button;
+- `UIManager:scheduleIn`, the `Suspend`/`Resume` events, and the menu order
+  tables that put Bluetooth beside Network.
+
+## Hardware
+
+- **Kobo Sage** and the **official Kobo Remote** — the device and remote this
+  fork was made for.
+- **Hanlinyue Free3** — the second supported
+  remote, used in its P mode. Its behaviour as documented in
+  [`docs/HANDOFF.md`](docs/HANDOFF.md) was measured on the Sage; nothing about
+  it comes from the manufacturer.
 
 ## License
 

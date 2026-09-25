@@ -23,36 +23,38 @@ Full credits, prior art consulted, and who did what are in
 
 ## What's different here
 
-Three things, each of which is on its own load-bearing:
-
 1. **Realtek RTL8821CS bring-up.** The Sage's radio is a Realtek part attached
    over UART on `/dev/ttyS1` speaking H5, not a Broadcom one. The upstream
    `hciattach ... bcm43xx` always ends in `Initialization timed out` and `hci0`
-   is never created, so every step after it fails. `on.sh` now uses
-   `rtk_hciattach`, power-cycles the chip through rfkill first, and starts
-   `bluetoothd` under `setsid`.
+   is never created. `on.sh` uses `rtk_hciattach` instead, power-cycles the
+   chip through rfkill first, waits for each step rather than sleeping, and
+   retries once if `hci0` doesn't come up.
 
-   `rtk_hciattach` output **must** be redirected to a file. It is a resident
-   process, so if it inherits the script's stdout the `io.popen` pipe never
-   reaches EOF and KOReader's UI thread hangs forever — which looks exactly like
-   a crash.
+2. **Input translation.** Both remotes emit **only** `EV_MSC`/`MSC_SCAN`. The
+   kernel never synthesises a matching `EV_KEY`, so KOReader's keymap sees
+   nothing, and the usual fix — a udev hwdb rule — isn't available on this
+   firmware. `main.lua` registers an event-adjust hook, recognises the
+   remotes' codes, and turns the page itself.
 
-2. **BLE input translation.** The Kobo Remote is HID-over-GATT (BLE), not
-   classic HID, and it emits **only** `EV_MSC`/`MSC_SCAN`. The kernel never
-   synthesises a matching `EV_KEY`, so KOReader's normal keymap sees nothing at
-   all. The usual fix — a udev hwdb rule — isn't available on this firmware.
-   Instead `main.lua` registers an event-adjust hook, recognises the remote's
-   scancodes, and dispatches `GotoViewRel` directly.
+3. **One page per press.** Each press sends its code twice — the Free3 both at
+   press, the Kobo Remote at press and again at release — so the plugin acts on
+   the first and swallows the second. Holding a button turns one page; a quick
+   double-tap turns two.
 
-3. **Remotes by name.** `device.conf` lists the remotes in order of preference
-   (`Free3-P` and `Kobo Remote`) rather than CarloDePieri's `Q36`, and
-   everything matches those names exactly.
+4. **Two remotes.** The official Kobo Remote (BLE) and the Hanlinyue Free3
+   (classic Bluetooth), listed in `device.conf` in order of preference and
+   matched by exact name. Either one turns pages, and the Free3 is preferred
+   when both are around.
 
-Plus two fixes: `Device.input:open(...)` was being called with a dot, which
-crashed on every *Refresh Device Input*; and the event-adjust hook is now
-registered once from module scope, because KOReader instantiates the plugin once
-per UI context and the hook chains rather than replaces — two live hooks meant
-every button press turned two pages.
+5. **It looks after itself.** Bluetooth comes up when KOReader starts, goes
+   off when the Kobo sleeps and comes back when it wakes — left on, the link
+   to the chip died in suspend. A watcher reopens a remote's input device
+   whenever it reappears, and dials a missing remote in the background, since
+   neither remote reconnects by itself. A dead controller is restarted. None of
+   this re-pairs unattended.
+
+6. **Nothing freezes the reader.** Scripts run off the UI thread through
+   KOReader's Trapper, with their output collected and delivered at exit.
 
 ## Tested on
 
@@ -96,8 +98,9 @@ Root is required; the scripts write to `/sys` and start daemons.
 By default there is nothing to do. **Bluetooth turns on by itself** a few
 seconds after KOReader starts, and the plugin connects whichever paired remote
 answers, trying them in `device.conf` order. It then watches for a remote
-dropping out and dials it again in the background, about once a minute. It
-never re-pairs on its own.
+dropping out and dials it again in the background: every 10 s for two minutes
+after Bluetooth comes up, then about once a minute. It never re-pairs on its
+own.
 
 The first time, pair each remote once with **RePair** (below).
 
@@ -112,8 +115,9 @@ Everything else lives under **Bluetooth** on the settings tab, directly below
   to a re-pair automatically.
 - **RePair & Reconnect to Device (long!)** — a submenu with one entry per
   remote. `repair.sh` removes that remote's bond, rescans, pairs, trusts and
-  connects. The remote has to be advertising while it scans: see
-  [Remotes](#remotes).
+  connects, retrying for up to 90 s. The remote has to be advertising while it
+  scans: see [Remotes](#remotes). A remote that is already connected and
+  working is left alone.
 - **Refresh Device Input** — closes and reopens the remotes' input devices. The
   watcher does this by itself; this is the manual override.
 - **Invert page-turn buttons** — swaps forward and back, for any remote.
@@ -151,8 +155,10 @@ until the light over the **↑↓** icon is lit: *Up and Down Mode*. In that mod
 the top key turns back and the middle key turns forward, sending exactly the
 codes the Kobo Remote sends. The bottom key runs whatever **Third button** is
 set to. Pair it once with **RePair → Free3-P** while its blue light is flashing.
-It keeps its bond through power-offs, so after that it only needs switching on.
-The plugin picks it up within about a minute. Volume mode, the other one likely
+It keeps its bond through power-offs, so after that it only needs switching on,
+and the plugin picks it up within a minute — within 10 s just after Bluetooth
+comes up. RePair leaves a connected Free3 alone; to pair it again anyway,
+switch it off, wait 20 seconds, choose RePair, then switch it on. Volume mode, the other one likely
 to be selected by accident, sends volume keys, which turn no pages.
 
 **Another remote** may work if it sends the same keyboard Up/Down Arrow codes:
@@ -180,13 +186,12 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
   it does nothing: the policy plugin reconnects by calling a profile's
   `connect` method, LE profiles like HoG don't have one, and the attempt fails
   with `Operation not supported`. That's why the stock list holds only BR/EDR
-  profiles. The plugin therefore dials the remotes itself, in the background,
-  about once a minute. It deliberately won't re-pair unattended, so a bond the
-  remote has *forgotten* still needs a menu tap.
-- **Bluetooth occasionally fails to come up.** `hci0` sometimes stays down after
-  `on.sh`. With the startup option, that shows only as
-  `could not turn on at startup: Error: hci0 did not come up` in `crash.log`,
-  and no remote. *Toggle Bluetooth* off and on again recovers it.
+  profiles. The plugin therefore dials the remotes itself, in the background.
+  It deliberately won't re-pair unattended, so a bond the remote has
+  *forgotten* still needs a menu tap.
+- **Re-pairing a connected Free3 takes about a minute.** Dropped by the
+  re-pair, it ignores the Kobo for ~45 s before it will pair again. RePair
+  waits it out, which is also why it leaves a working Free3 alone.
 - **Bluetooth needs somewhere to write.** The rootfs is ~282 MB and ships
   nearly full; BlueZ stores bonds under `/var/db/bluetooth`, and when the disk
   is full it fails to persist them with no symptom other than pairings that
@@ -212,10 +217,11 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
 
 ## Digging deeper
 
-[`docs/HANDOFF.md`](docs/HANDOFF.md) is the full technical record: how each
-hardware fact was established, the exact scripts and why every line is there, a
-table of dead ends not worth retrying, the diagnosis of the double-page-advance
-bug, and a list of useful debugging commands.
+[`docs/HANDOFF.md`](docs/HANDOFF.md) is the technical record of the current
+design: the hardware facts and how each was established, how every script and
+the plugin work and why, open issues, and useful debugging commands.
+[`docs/HISTORY.md`](docs/HISTORY.md) covers how it got there: a table of dead
+ends not worth retrying, and the bugs worth remembering.
 
 One gotcha worth repeating here: KOReader's SSH server is itself a plugin, so
 quitting KOReader kills your own shell session.
