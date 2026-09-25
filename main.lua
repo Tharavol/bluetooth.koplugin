@@ -320,8 +320,9 @@ end
 placeBesideNetwork("ui/elements/reader_menu_order")
 placeBesideNetwork("ui/elements/filemanager_menu_order")
 
+-- `name` matches the folder name and _meta.lua; see there (#41).
 local Bluetooth = InputContainer:extend{
-    name = "Bluetooth",
+    name = "bluetooth",
 }
 
 function Bluetooth:onDispatcherRegisterActions()
