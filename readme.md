@@ -207,8 +207,8 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
   other press.
 - `device.lua.patch` and `uhid/` are inherited from upstream and are **not** part
   of the Sage setup described here. `uhid` is compiled into this kernel, and the
-  page-turn path bypasses KOReader's keymap entirely, so the `BT*` key events in
-  `main.lua` are unused on the Sage.
+  page-turn path bypasses KOReader's keymap entirely. (The `BT*` key events
+  that went with the patch were removed from `main.lua` in v1.5.0.)
 
 ## Digging deeper
 

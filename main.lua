@@ -9,7 +9,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local UIManager = require("ui/uimanager")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Device = require("device")
-local Event = require("ui/event")  -- Add this line
+local Event = require("ui/event")
 local Trapper = require("ui/trapper")
 local logger = require("logger")
 local ffi = require("ffi")
@@ -19,8 +19,6 @@ local ffi = require("ffi")
 -- closeInputPath falls back to closing unconditionally, as it always did.
 pcall(ffi.cdef, "ssize_t readlink(const char *path, char *buf, size_t bufsiz);")
 local have_readlink = pcall(function() return ffi.C.readlink end)
-
--- local BTKeyManager = require("BTKeyManager")
 
 local _ = require("gettext")
 
@@ -229,7 +227,6 @@ end
 -- closing whatever /proc lists now could close something we never opened.
 local bt_open_paths = {}
 
--- local Bluetooth = EventListener:extend{
 -- Put "Bluetooth" on the settings tab directly below "Network", rather than
 -- inside it. Plugins normally place themselves with sorting_hint, which can
 -- only append to the end of a menu. KOReader's menu order is a plain table
@@ -272,107 +269,10 @@ function Bluetooth:onDispatcherRegisterActions()
         {category="none", event="ConnectToDevice", title=_("Connect to Device"), general=true})
 end
 
-function Bluetooth:registerKeyEvents()
-    self.key_events.BTGotoNextChapter = { { "BTGotoNextChapter" }, event = "BTGotoNextChapter" }
-    self.key_events.BTGotoPrevChapter = { { "BTGotoPrevChapter" }, event = "BTGotoPrevChapter" }
-    self.key_events.BTDecreaseFontSize = { { "BTDecreaseFontSize" }, event = "BTDecreaseFontSize" }
-    self.key_events.BTIncreaseFontSize = { { "BTIncreaseFontSize" }, event = "BTIncreaseFontSize" }
-    self.key_events.BTToggleBookmark = { { "BTToggleBookmark" }, event = "BTToggleBookmark" }
-    self.key_events.BTIterateRotation = { { "BTIterateRotation" }, event = "BTIterateRotation" }
-    self.key_events.BTBluetoothOff = { { "BTBluetoothOff" }, event = "BTBluetoothOff" }
-    self.key_events.BTRight = { { "BTRight" }, event = "BTRight" }
-    self.key_events.BTLeft = { { "BTLeft" }, event = "BTLeft" }
-	self.key_events.BTIncreaseBrightness = { { "BTIncreaseBrightness" }, event = "BTIncreaseBrightness" }
-	self.key_events.BTDecreaseBrightness = { { "BTDecreaseBrightness" }, event = "BTDecreaseBrightness" }
-	self.key_events.BTIncreaseWarmth = { { "BTIncreaseWarmth" }, event = "BTIncreaseWarmth" }
-	self.key_events.BTDecreaseWarmth = { { "BTDecreaseWarmth" }, event = "BTDecreaseWarmth" }
-	self.key_events.BTNextBookmark = { { "BTNextBookmark" }, event = "BTNextBookmark" }
-	self.key_events.BTPrevBookmark = { { "BTPrevBookmark" }, event = "BTPrevBookmark" }
-	self.key_events.BTLastBookmark = { { "BTLastBookmark" }, event = "BTLastBookmark" }
-	self.key_events.BTToggleNightMode = { { "BTToggleNightMode" }, event = "BTToggleNightMode" }
-	self.key_events.BTToggleStatusBar = { { "BTToggleStatusBar" }, event = "BTToggleStatusBar" }
-
-end
-
-
-function Bluetooth:onBTGotoNextChapter()
-    UIManager:sendEvent(Event:new("GotoNextChapter"))
-end
-
-function Bluetooth:onBTGotoPrevChapter()
-    UIManager:sendEvent(Event:new("GotoPrevChapter"))
-end
-
-function Bluetooth:onBTDecreaseFontSize()
-    UIManager:sendEvent(Event:new("DecreaseFontSize", 2))
-end
-
-function Bluetooth:onBTIncreaseFontSize()
-    UIManager:sendEvent(Event:new("IncreaseFontSize", 2))
-end
-
-function Bluetooth:onBTToggleBookmark()
-    UIManager:sendEvent(Event:new("ToggleBookmark"))
-end
-
-function Bluetooth:onBTIterateRotation()
-    UIManager:sendEvent(Event:new("IterateRotation"))
-end
-
-function Bluetooth:onBTBluetoothOff()
-    UIManager:sendEvent(Event:new("BluetoothOff"))
-end
-
-function Bluetooth:onBTRight()
-    UIManager:sendEvent(Event:new("GotoViewRel", 1))
-end
-
-function Bluetooth:onBTLeft()
-    UIManager:sendEvent(Event:new("GotoViewRel", -1))
-end
-
-function Bluetooth:onBTIncreaseBrightness()
-    UIManager:sendEvent(Event:new("IncreaseFlIntensity", 10))
-end
-
-function Bluetooth:onBTDecreaseBrightness()
-    UIManager:sendEvent(Event:new("DecreaseFlIntensity", 10))
-end
-
-function Bluetooth:onBTIncreaseWarmth()
-    UIManager:sendEvent(Event:new("IncreaseFlWarmth", 1))
-end
-
-function Bluetooth:onBTDecreaseWarmth()
-    UIManager:sendEvent(Event:new("IncreaseFlWarmth", -1))
-end
-
-function Bluetooth:onBTNextBookmark()
-    UIManager:sendEvent(Event:new("GotoNextBookmarkFromPage"))
-end
-
-function Bluetooth:onBTPrevBookmark()
-    UIManager:sendEvent(Event:new("GotoPreviousBookmarkFromPage"))
-end
-
-function Bluetooth:onBTLastBookmark()
-    UIManager:sendEvent(Event:new("GoToLatestBookmark"))
-end
-
-function Bluetooth:onBTToggleNightMode()
-    UIManager:sendEvent(Event:new("ToggleNightMode"))
-end
-
-function Bluetooth:onBTToggleStatusBar()
-    UIManager:sendEvent(Event:new("ToggleFooterMode"))
-end
-
-
 function Bluetooth:init()
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
 
-    self:registerKeyEvents()
 
     -- The remote reports button presses as EV_MSC/MSC_SCAN only; the kernel
     -- never synthesises an EV_KEY for these usages, so translate them here.
@@ -484,17 +384,15 @@ function Bluetooth:addToMainMenu(menu_items)
                 text = _("Toggle Bluetooth"),
                 keep_menu_open = true,
                 checked_func = function()
-                  return self:isBluetoothOn()
+                    return self:isBluetoothOn()
                 end,
                 callback = function()
                     if not self:isWifiEnabled() then
                         self:popup("Please turn on Wi-Fi to continue.")
-                    else
-                      if self:isBluetoothOn() then
+                    elseif self:isBluetoothOn() then
                         self:onBluetoothOff()
-                      else
+                    else
                         self:onBluetoothOn()
-                      end
                     end
                 end,
                 separator = true,
@@ -502,7 +400,7 @@ function Bluetooth:addToMainMenu(menu_items)
             {
                 text = _("Reconnect to Device"),
                 enabled_func = function()
-                  return self:isBluetoothOn()
+                    return self:isBluetoothOn()
                 end,
                 callback = function()
                     self:onConnectToDevice()
@@ -511,7 +409,7 @@ function Bluetooth:addToMainMenu(menu_items)
             {
                 text = _("RePair & Reconnect to Device (long!)"),
                 enabled_func = function()
-                  return self:isBluetoothOn()
+                    return self:isBluetoothOn()
                 end,
                 -- One entry per remote: a re-pair removes that remote's bond
                 -- before rebuilding it, so it has to be aimed at one.
@@ -531,7 +429,7 @@ function Bluetooth:addToMainMenu(menu_items)
             {
                 text = _("Refresh Device Input"),
                 enabled_func = function()
-                  return self:isBluetoothOn()
+                    return self:isBluetoothOn()
                 end,
                 callback = function()
                     self:onRefreshPairing()
@@ -1239,31 +1137,27 @@ function Bluetooth:connectedMessage(result)
 end
 
 function Bluetooth:isBluetoothOn()
-  local file = io.open("/sys/devices/platform/bt/rfkill/rfkill0/state", "r")
-  if not file then
-    return false
-  end
-  local content = file:read("*line")
-  file:close()
-  if content ~= "1" then
-    return false
-  end
+    local file = io.open("/sys/devices/platform/bt/rfkill/rfkill0/state", "r")
+    if not file then
+        return false
+    end
+    local content = file:read("*line")
+    file:close()
+    if content ~= "1" then
+        return false
+    end
 
-  -- rfkill only reports that the radio is unblocked, which it can be at boot
-  -- with nothing attached to it. hci0 appears under /sys/class/bluetooth only
-  -- once rtk_hciattach has registered the controller, and every sysfs device
-  -- directory has a uevent file, so this is the cheap existence check.
-  -- (It still reads as "on" for an attached-but-DOWN hci0.)
-  local hci = io.open("/sys/class/bluetooth/hci0/uevent", "r")
-  if not hci then
-    return false
-  end
-  hci:close()
-  return true
-end
-
-function Bluetooth:debugPopup(msg)
-    self:popup(_("DEBUG: ") .. msg)
+    -- rfkill only reports that the radio is unblocked, which it can be at boot
+    -- with nothing attached to it. hci0 appears under /sys/class/bluetooth only
+    -- once rtk_hciattach has registered the controller, and every sysfs device
+    -- directory has a uevent file, so this is the cheap existence check.
+    -- (It still reads as "on" for an attached-but-DOWN hci0.)
+    local hci = io.open("/sys/class/bluetooth/hci0/uevent", "r")
+    if not hci then
+        return false
+    end
+    hci:close()
+    return true
 end
 
 function Bluetooth:popup(text)
