@@ -26,30 +26,35 @@ for bluetooth_address in $(device_macs "$name"); do
   bltctl remove "$bluetooth_address" 2>&1 | diag
 done
 
-# Find the remote and pair with it, for up to 60 s from the first scan.
+# Find the remote and pair with it, for up to 90 s from the first scan.
 #
 # Scanning is in 4 s rounds, each ending when timeout kills bluetoothctl;
 # devices a round found stay known to bluetoothd after discovery stops, which
-# is all the pair needs. One 5 s scan was too short for a Free3 that was
-# connected when RePair started: dropped by the power cycle above, it only
-# starts advertising (its light blinking) about 14 s later.
+# is all the pair needs.
 #
-# A failed pair is retried up to 3 times, the way a second RePair would do it:
-# power cycle, scan, pair. On the Sage a Free3 that had been connected turned
-# up in the scan as its light started blinking, about 14 s after the power
-# cycle dropped it, and every pair failed with ConnectionAttemptFailed --
-# including retries 2 s and 20 s later without a power cycle. A second RePair
-# always worked. BlueZ drops a device whose pair failed ("Device ... not
-# available"), so the retry scans for it again.
+# A failed pair is retried until the time is up, because a Free3 that was
+# connected when RePair started can't be reached for a while after the power
+# cycle above drops it. Measured on the Sage (hcitool con, crash.log): its
+# light started blinking and it showed up in the scan about 14 s later, but
+# for the next 30 s every pair failed with ConnectionAttemptFailed -- the Kobo
+# paged it for 5 s each time and got no answer. Then the Free3 paged the
+# Kobo itself, about 45 s after the drop, and a connect a few seconds later
+# went through and bonded. Retrying sooner doesn't help, and power cycles in
+# between didn't either (and would miss the Free3's own page). A second
+# RePair only ever worked because by then that time had passed.
+#
+# BlueZ drops a device whose pair failed ("Device ... not available"), so a
+# retry scans for it again first when it has to. A bond the remote formed
+# from its own side in the meantime counts too.
 #
 # The pair gets 20 s rather than bltctl's 5: the Free3 takes longer than 5 s
 # to finish pairing, and a 5 s limit killed bluetoothctl partway through.
-deadline=$(( $(date +%s) + 60 ))
+deadline=$(( $(date +%s) + 90 ))
 bluetooth_address=
 pair_output=
 paired=
 pair_tries=0
-while [ "$(date +%s)" -lt "$deadline" ] && [ "$pair_tries" -lt 3 ]; do
+while [ "$(date +%s)" -lt "$deadline" ]; do
     found=$(device_macs "$name" | head -n 1)
     if [ -z "$found" ]; then
         bltctl_for 4 scan on 2>&1 | diag
@@ -59,6 +64,10 @@ while [ "$(date +%s)" -lt "$deadline" ] && [ "$pair_tries" -lt 3 ]; do
     # final scan that ran out of time must not leave the address empty for
     # the trust, connect and bond check below.
     bluetooth_address=$found
+    if bltctl info "$bluetooth_address" 2>/dev/null | grep -q "Paired: yes"; then
+        paired=yes
+        break
+    fi
     pair_tries=$((pair_tries + 1))
     pair_output=$(bltctl_for 20 pair "$bluetooth_address" 2>&1) || true
     if echo "$pair_output" | grep -qE "Pairing successful|AlreadyExists"; then
@@ -67,9 +76,7 @@ while [ "$(date +%s)" -lt "$deadline" ] && [ "$pair_tries" -lt 3 ]; do
     fi
     echo "$pair_output" | diag
     echo "Pair attempt $pair_tries did not succeed" | diag
-    if [ "$pair_tries" -lt 3 ]; then
-        cycle_power
-    fi
+    sleep 2
 done
 if [ -z "$paired" ] && [ "$pair_tries" -eq 0 ]; then
     echo "$name was not found while scanning. Make sure it is on and advertising"
