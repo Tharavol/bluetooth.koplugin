@@ -13,7 +13,7 @@ jobs:
       # ash, whatever the shebang says. .shellcheckrc lets -x follow the
       # sourced device.conf and lib.sh.
       - run: shellcheck --version
-      - run: shellcheck -x -s sh ./*.sh uhid/run.sh
+      - run: shellcheck -x -s sh ./*.sh
 
   luacheck:
     runs-on: ubuntu-latest
@@ -21,4 +21,4 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - uses: lunarmodules/luacheck@cc089e3f65acdd1ef8716cc73a3eca24a6b845e4  # v1.2.0
         with:
-          args: main.lua
+          args: .

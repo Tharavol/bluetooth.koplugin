@@ -1,0 +1,54 @@
+name: Package
+
+# Builds bluetooth.koplugin.zip, the installable plugin (#43): only what runs
+# on the device, plus the license, the disclaimer and the readme, in a folder
+# named exactly bluetooth.koplugin -- KOReader only loads *.koplugin folders,
+# and GitHub's "Download ZIP" names it bluetooth.koplugin-main, which silently
+# never loads.
+#
+# On a published release, the zip is attached to it. Run by hand, it is only
+# built and kept as a workflow artifact, for checking before a release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      # Globs rather than a fixed list for the Lua and shell files, so a new
+      # module or script ships without editing this. Everything else at the top
+      # of the repo is documentation or configuration and stays out.
+      - name: Build the zip
+        run: |
+          set -eu
+          mkdir -p build/bluetooth.koplugin
+          cp ./*.lua ./*.sh device.conf LICENSE DISCLAIMER readme.md build/bluetooth.koplugin/
+          chmod 755 build/bluetooth.koplugin/*.sh
+          # The scripts run under busybox ash on the device: no CRs.
+          if grep -l "$(printf '\r')" build/bluetooth.koplugin/*.sh build/bluetooth.koplugin/device.conf; then
+            echo "CRLF line endings in the files above" >&2
+            exit 1
+          fi
+          (cd build && zip -r -X ../bluetooth.koplugin.zip bluetooth.koplugin)
+          unzip -Z -l bluetooth.koplugin.zip
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" bluetooth.koplugin.zip --clobber
+
+      - name: Keep as an artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: bluetooth.koplugin
+          path: bluetooth.koplugin.zip

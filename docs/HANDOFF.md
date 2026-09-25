@@ -123,9 +123,22 @@ in the plugin's UI). The parent's `connect.sh` / `repair.sh` also hardcoded a
 Folder **must** be named exactly `bluetooth.koplugin`. GitHub's "Download ZIP"
 produces `bluetooth.koplugin-main`; KOReader's loader only scans `*.koplugin`,
 so a mis-named folder means the plugin silently never loads — no error, nothing
-in `crash.log`.
+in `crash.log`. The release zip, `bluetooth.koplugin.zip`, is built by the
+`Package` workflow when a release is published: the `*.lua` and `*.sh` files,
+`device.conf`, `LICENSE`, `DISCLAIMER` and `readme.md`, in a correctly named
+folder (#43).
 
-Path: `/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/`
+Usual path: `/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/`. Any
+KOReader plugins folder works: `main.lua` takes its own directory from where
+the loader found it (`debug.getinfo`, made absolute against KOReader's working
+directory when the loader used a relative path), and passes it, quoted, to
+every script (#36).
+
+`_meta.lua` gives the plugin manager a name and description, and is what the
+loader runs in place of `main.lua` while the plugin is disabled. Its `name`,
+and `main.lua`'s, must be the folder name without `.koplugin`: the manager
+records a disabled plugin under `name`, and the loader looks it up under the
+folder name (#41).
 
 Copy the whole folder when upgrading: `connect.sh` and `repair.sh` source
 `lib.sh`.

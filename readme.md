@@ -74,22 +74,33 @@ parent repos instead.
 
 ## Install
 
-Copy this folder to:
+Download **`bluetooth.koplugin.zip`** from the
+[latest release](https://github.com/Tharavol/bluetooth.koplugin/releases/latest)
+and unzip it into KOReader's `plugins` folder, usually:
 
 ```
-/mnt/onboard/.adds/koreader/plugins/bluetooth.koplugin/
+/mnt/onboard/.adds/koreader/plugins/
 ```
 
-The folder name must be **exactly** `bluetooth.koplugin`. KOReader only scans
-for `*.koplugin`, and a mis-named directory (GitHub's "Download ZIP" gives you
-`bluetooth.koplugin-main`) means the plugin silently never loads — no error, and
-nothing in `crash.log`.
+That gives `plugins/bluetooth.koplugin/`, which is all KOReader needs. Restart
+KOReader. Any other KOReader `plugins` folder works too — the plugin finds its
+own files wherever it is.
 
-When upgrading, copy the whole folder rather than individual files: the
-scripts share `lib.sh`, and `connect.sh` and `repair.sh` fail without it.
+The zip holds only what runs on the device, plus `LICENSE`, `DISCLAIMER` and
+this readme. Use it rather than GitHub's green **Code → Download ZIP**, which
+unpacks to `bluetooth.koplugin-main`: KOReader only loads folders named
+`*.koplugin`, so that one silently never loads — no error, and nothing in
+`crash.log`.
 
-Make sure the `.sh` files have LF line endings and are executable.
-`.gitattributes` forces LF on checkout so a clone made on Windows stays usable.
+**Upgrading:** unzip over the old folder. If you edited `device.conf`, keep a
+copy first, since the zip replaces it. Installs from before v1.6.0 may still
+have `uhid/` and `device.lua.patch` in the folder; neither was ever used on the
+Sage, and both can be deleted.
+
+**From a clone:** copy the `*.lua` and `*.sh` files and `device.conf` into a
+folder named exactly `bluetooth.koplugin`. The `.sh` files need LF line
+endings; `.gitattributes` forces LF on checkout, so a clone made on Windows
+stays usable.
 
 Root is required; the scripts write to `/sys` and start daemons.
 
@@ -210,10 +221,6 @@ what it sends. The Kobo Remote and the Free3 send `MSC_SCAN` values `70051`
   holding a button turns one page, and a quick double-tap turns two. Another
   remote that sends a single code per press would turn a page only on every
   other press.
-- `device.lua.patch` and `uhid/` are inherited from upstream and are **not** part
-  of the Sage setup described here. `uhid` is compiled into this kernel, and the
-  page-turn path bypasses KOReader's keymap entirely. (The `BT*` key events
-  that went with the patch were removed from `main.lua` in v1.5.0.)
 
 ## Digging deeper
 
