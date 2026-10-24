@@ -46,7 +46,8 @@ new_case() {
     for f in "$REPO"/*.sh "$REPO/device.conf"; do
         # shellcheck disable=SC2016  # $BT_DIR is text to match, not to expand
         sed -e "s#/sys/#$ROOT/sys/#g" -e "s#/proc/#$ROOT/proc/#g" -e "s#/var/log/#$ROOT/var/log/#g" \
-            -e "s#/sbin/rtk_hciattach#rtk_hciattach#g" -e "s#/libexec/bluetooth/bluetoothd#bluetoothd#g" \
+            -e "s#/sbin/rtk_hciattach#rtk_hciattach#g" -e "s#/sbin/hciattach#hciattach#g" \
+            -e "s#/libexec/bluetooth/bluetoothd#bluetoothd#g" \
             -e 's/ 2>&1 &$/ 2>\&1/' \
             -e 's#exec /bin/sh "$BT_DIR/repair.sh"#set +e; . "$BT_DIR/repair.sh"#' \
             "$f" > "$ROOT/plugin/${f##*/}"
@@ -252,6 +253,22 @@ run on.sh
 
 new_case "on: both attaches fail"
 stack_off
+: > "$ROOT/hci/attach_ok"
+run on.sh
+
+new_case "on: Broadcom Sage, from off"
+stack_off
+mkdir -p "$ROOT/sys/module/bcmdhd"
+run on.sh
+
+new_case "on: Broadcom Sage, Wi-Fi off, chip remembered"
+stack_off
+echo broadcom > "$ROOT/plugin/chip"
+run on.sh
+
+new_case "on: Broadcom Sage, both attaches fail"
+stack_off
+mkdir -p "$ROOT/sys/module/bcmdhd"
 : > "$ROOT/hci/attach_ok"
 run on.sh
 
