@@ -1,4 +1,6 @@
 #!/bin/sh
+BT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 # Run from /, not from the plugin directory. rtk_hciattach and bluetoothd are
 # resident and inherit this directory as their cwd; left on /mnt/onboard, they
 # hold that filesystem busy and USB mass storage refuses to start. Nothing below
@@ -19,7 +21,29 @@ wait_for() {
 }
 
 old_stack_gone() {
-    ! pidof rtk_hciattach >/dev/null 2>&1 && ! pidof bluetoothd >/dev/null 2>&1
+    ! pidof rtk_hciattach >/dev/null 2>&1 && ! pidof hciattach >/dev/null 2>&1 &&
+        ! pidof bluetoothd >/dev/null 2>&1
+}
+
+# The Sage shipped with two radios: a Realtek RTL8821CS (UART H5, rtk_hciattach)
+# and a Cypress/Broadcom BCM4345C0 (hciattach bcm43xx, what Nickel's
+# CypressHciAttach runs). Same rootfs, so firmware files can't tell them apart;
+# the loaded Wi-Fi driver can, but only while Wi-Fi is on. The last answer is
+# kept next to the plugin for the times it is off.
+detect_chip() {
+    chip=
+    if [ -d /sys/module/bcmdhd ] || [ -d /sys/module/brcmfmac ] ||
+        grep -qs brcmfmac /sys/class/rfkill/*/name; then
+        chip=broadcom
+    elif [ -d /sys/module/8821cs ]; then
+        chip=realtek
+    fi
+    if [ -n "$chip" ]; then
+        echo "$chip" > "$BT_DIR/chip" 2>/dev/null
+    else
+        chip=$(cat "$BT_DIR/chip" 2>/dev/null)
+    fi
+    [ -n "$chip" ] || chip=realtek
 }
 
 hci0_exists() {
@@ -42,6 +66,7 @@ bring_up() {
     was_on=$(cat /sys/devices/platform/bt/rfkill/rfkill0/state 2>/dev/null)
 
     killall rtk_hciattach 2>/dev/null
+    killall hciattach 2>/dev/null
     killall bluetoothd 2>/dev/null
     # killall only signals. The old rtk_hciattach restores the serial line's
     # discipline as it exits, and if the new one has attached by then, that
@@ -65,7 +90,14 @@ bring_up() {
     fi
     echo 1 > /sys/devices/platform/bt/rfkill/rfkill0/state
 
-    /sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 > /var/log/rtk_hciattach.log 2>&1 &
+    if [ "$chip" = broadcom ]; then
+        # Forks into the background once the firmware is flashed, so this
+        # returns when the attach is done (about 2 s) or has failed.
+        /sbin/hciattach /dev/ttyS1 bcm43xx 1500000 flow -t 20 -b bcm43xx_init \
+            < /dev/null > /var/log/hciattach.log 2>&1
+    else
+        /sbin/rtk_hciattach -n -s 115200 /dev/ttyS1 rtk_h5 > /var/log/rtk_hciattach.log 2>&1 &
+    fi
     # Wait for the attach instead of sleeping a fixed time. It syncs at
     # 115200, downloads firmware and switches to 1.5 Mbaud, and on the Sage
     # that sometimes outlasted the fixed wait: the check found no hci0 at all
@@ -91,10 +123,17 @@ log_attach() {
     hciconfig hci0 2>&1 | sed 's/^/[bluetooth]   /' >&2
     killall rtk_hciattach 2>/dev/null
     sleep 1
-    echo "[bluetooth] rtk_hciattach.log follows" >&2
-    sed 's/^/[bluetooth]   /' /var/log/rtk_hciattach.log >&2 2>/dev/null
+    if [ "$chip" = broadcom ]; then
+        echo "[bluetooth] hciattach.log follows" >&2
+        sed 's/^/[bluetooth]   /' /var/log/hciattach.log >&2 2>/dev/null
+    else
+        echo "[bluetooth] rtk_hciattach.log follows" >&2
+        sed 's/^/[bluetooth]   /' /var/log/rtk_hciattach.log >&2 2>/dev/null
+    fi
 }
 
+detect_chip
+echo "[bluetooth] chip: $chip" >&2
 bring_up
 # Once is usually enough. When it isn't, try one more full cycle (#49): seen
 # failing at startup, where that otherwise means no remote until a manual
