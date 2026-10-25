@@ -59,7 +59,7 @@ killall() {
     [ -f "$ROOT/procs" ] || return 1
     trace "killall $1"
     # The controller goes with the process attaching it.
-    [ "$1" = rtk_hciattach ] && rm -rf "$ROOT/sys/class/bluetooth/hci0"
+    { [ "$1" = rtk_hciattach ] || [ "$1" = hciattach ]; } && rm -rf "$ROOT/sys/class/bluetooth/hci0"
     awk -v n="$1" -v t=$(( $(clock) + ${EXIT_DELAY:-1} )) \
         '$1 == n && $2 == "-" { $2 = t } { print }' "$ROOT/procs" > "$ROOT/procs.new"
     mv "$ROOT/procs.new" "$ROOT/procs"
@@ -82,6 +82,24 @@ rtk_hciattach() {
     else
         echo never > "$ROOT/hci/ready_at"
         echo "RTK_BT: Retransmission exhausts"
+    fi
+}
+
+# The Broadcom attach. Unlike rtk_hciattach it stays in the foreground until the
+# firmware is flashed, then forks: hci0 is there when it returns, or never.
+hciattach() {
+    n=$(( $(cat "$ROOT/hci/attempts" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$ROOT/hci/attempts"
+    trace "hciattach (attempt $n)"
+    echo "bcm43xx_init"
+    if [ "$(cat "$ROOT/sys/devices/platform/bt/rfkill/rfkill0/state")" = 1 ] &&
+        grep -qw "$n" "$ROOT/hci/attach_ok"; then
+        proc_start hciattach
+        mkdir -p "$ROOT/sys/class/bluetooth/hci0"
+        echo "Device setup complete"
+    else
+        echo "Initialization timed out."
+        return 1
     fi
 }
 

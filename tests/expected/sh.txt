@@ -347,8 +347,10 @@
 === on: from off
 --- on.sh 
   | complete
+  ! [bluetooth] chip: realtek
   exit 0
   ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
   ~ [0] killall bluetoothd
   ~ [1] rtk_hciattach (attempt 1)
   ~ [4] hciconfig hci0 up
@@ -357,8 +359,10 @@
 === on: restarting a running stack
 --- on.sh 
   | complete
+  ! [bluetooth] chip: realtek
   exit 0
   ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
   ~ [0] killall bluetoothd
   ~ [6] rtk_hciattach (attempt 1)
   ~ [9] hciconfig hci0 up
@@ -367,8 +371,10 @@
 === on: a slow attach, inside the wait
 --- on.sh 
   | complete
+  ! [bluetooth] chip: realtek
   exit 0
   ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
   ~ [0] killall bluetoothd
   ~ [1] rtk_hciattach (attempt 1)
   ~ [9] hciconfig hci0 up
@@ -377,6 +383,7 @@
 === on: the first attach fails, the retry works
 --- on.sh 
   | complete
+  ! [bluetooth] chip: realtek
   ! [bluetooth] hci0 did not come up; retrying once
   ! [bluetooth]   Can't get device info: No such device
   ! [bluetooth] rtk_hciattach.log follows
@@ -384,11 +391,13 @@
   ! [bluetooth]   RTK_BT: Retransmission exhausts
   exit 0
   ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
   ~ [0] killall bluetoothd
   ~ [1] rtk_hciattach (attempt 1)
   ~ [10] bluetoothd
   ~ [14] killall rtk_hciattach
   ~ [15] killall rtk_hciattach
+  ~ [15] killall hciattach
   ~ [15] killall bluetoothd
   ~ [20] rtk_hciattach (attempt 2)
   ~ [23] hciconfig hci0 up
@@ -397,6 +406,7 @@
 === on: both attaches fail
 --- on.sh 
   | Error: hci0 did not come up - see crash.log
+  ! [bluetooth] chip: realtek
   ! [bluetooth] hci0 did not come up; retrying once
   ! [bluetooth]   Can't get device info: No such device
   ! [bluetooth] rtk_hciattach.log follows
@@ -409,13 +419,67 @@
   ! [bluetooth]   RTK_BT: Retransmission exhausts
   exit 1
   ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
   ~ [0] killall bluetoothd
   ~ [1] rtk_hciattach (attempt 1)
   ~ [10] bluetoothd
   ~ [14] killall rtk_hciattach
   ~ [15] killall rtk_hciattach
+  ~ [15] killall hciattach
   ~ [15] killall bluetoothd
   ~ [20] rtk_hciattach (attempt 2)
+  ~ [29] bluetoothd
+  ~ [33] killall rtk_hciattach
+
+=== on: Broadcom Sage, from off
+--- on.sh 
+  | complete
+  ! [bluetooth] chip: broadcom
+  exit 0
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] hciattach (attempt 1)
+  ~ [1] hciconfig hci0 up
+  ~ [1] bluetoothd
+
+=== on: Broadcom Sage, Wi-Fi off, chip remembered
+--- on.sh 
+  | complete
+  ! [bluetooth] chip: broadcom
+  exit 0
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] hciattach (attempt 1)
+  ~ [1] hciconfig hci0 up
+  ~ [1] bluetoothd
+
+=== on: Broadcom Sage, both attaches fail
+--- on.sh 
+  | Error: hci0 did not come up - see crash.log
+  ! [bluetooth] chip: broadcom
+  ! [bluetooth] hci0 did not come up; retrying once
+  ! [bluetooth]   Can't get device info: No such device
+  ! [bluetooth] hciattach.log follows
+  ! [bluetooth]   bcm43xx_init
+  ! [bluetooth]   Initialization timed out.
+  ! [bluetooth] hci0 did not come up after a retry
+  ! [bluetooth]   Can't get device info: No such device
+  ! [bluetooth] hciattach.log follows
+  ! [bluetooth]   bcm43xx_init
+  ! [bluetooth]   Initialization timed out.
+  exit 1
+  ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
+  ~ [0] killall bluetoothd
+  ~ [1] hciattach (attempt 1)
+  ~ [10] bluetoothd
+  ~ [14] killall rtk_hciattach
+  ~ [15] killall rtk_hciattach
+  ~ [15] killall hciattach
+  ~ [15] killall bluetoothd
+  ~ [20] hciattach (attempt 2)
   ~ [29] bluetoothd
   ~ [33] killall rtk_hciattach
 
@@ -425,6 +489,7 @@
   exit 0
   ~ [0] hciconfig hci0 down
   ~ [0] killall rtk_hciattach
+  ~ [0] killall hciattach
   ~ [0] killall bluetoothd
 
 === info: Bluetooth and Wi-Fi on
